@@ -3383,3 +3383,135 @@ public class OpcaoFreteDTO {
     
 
 }
+
+package com.app.backend_alfatec_shop.pedido.application.service;
+package com.app.backend_alfatec_shop.pedido.application.service;
+
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.app.backend_alfatec_shop.frete.domain.SnapshotFrete;
+import com.app.backend_alfatec_shop.frete.dto.OpcaoFreteDTO;
+import com.app.backend_alfatec_shop.frete.service.FreteService;
+import com.app.backend_alfatec_shop.pedido.domain.model.Cupom;
+import com.app.backend_alfatec_shop.pedido.domain.model.DadosLogisticosPedido;
+import com.app.backend_alfatec_shop.pedido.domain.service.CupomService;
+import com.app.backend_alfatec_shop.repository.ProdutoRepository;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional(readOnly = true)
+@RequiredArgsConstructor
+public class SimulacaoService {
+    
+    private final ProdutoRepository produtoRepository;
+    private final FreteService freteService;
+    private final CupomService cupomService;
+    
+    public SimularFreteResponse simularFrete(SimularFreteRequest request) {
+        // Lógica simples de cálculo de frete
+        DadosLogisticosPedido dados = criarDadosLogisticos(request);
+        List<OpcaoFreteDTO> opcoesDTO = freteService.listarOpcoesFrete(dados);
+        
+        List<OpcaoFreteResponse> opcoes = opcoesDTO.stream()
+            .map(this::converterParaResponse)
+            .sorted(Comparator.comparing(OpcaoFreteResponse::valor))
+            .collect(Collectors.toList());
+        
+        OpcaoFreteResponse maisBarato = !opcoes.isEmpty() ? opcoes.get(0) : null;
+        
+        return new SimularFreteResponse(
+            request.cepDestino(),
+            opcoes,
+            maisBarato
+        );
+    }
+    
+    public SimularCupomResponse simularCupom(SimularCupomRequest request) {
+        Optional<Cupom> cupomOpt = cupomService.buscarPorCodigo(request.codigoCupom());
+        
+        if (cupomOpt.isEmpty()) {
+            return criarRespostaInvalida("Cupom não encontrado");
+        }
+        
+        Cupom cupom = cupomOpt.get();
+        
+        // Validações básicas
+        if (!cupom.isAtivo()) {
+            return criarRespostaInvalida("Cupom inativo");
+        }
+        
+        // Calcular desconto simples
+        Money desconto = calcularDescontoSimples(cupom, request.valorFrete());
+        
+        return new SimularCupomResponse(
+            cupom.getCodigo(),
+            true,
+            "Cupom válido",
+            desconto,
+            request.valorFrete() != null ? 
+                request.valorFrete().subtrair(desconto) : Money.ZERO
+        );
+    }
+    
+    private DadosLogisticos criarDadosLogisticos(SimularFreteRequest request) {
+        // Simplificado: usa valores padrão
+        return new DadosLogisticos(
+            BigDecimal.valueOf(1000), // peso padrão 1kg
+            BigDecimal.valueOf(10000), // volume padrão
+            request.cepDestino(),
+            request.itens().size(),
+            BigDecimal.valueOf(20)
+        );
+    }
+    
+    private OpcaoFreteResponse converterParaResponse(OpcaoFreteDTO dto) {
+        SnapshotFrete snapshot = SnapshotFrete.criarBasico(
+            dto.getCodigoTransportadora(),
+            dto.getNomeServico(),
+            dto.getValor(),
+            dto.getPrazoDias(),
+            dto.isFreteGratis()
+        );
+        
+        return new OpcaoFreteResponse(
+            snapshot.getCodigoTransportadora(),
+            snapshot.getNomeTransportadora(),
+            snapshot.getCodigoServico(),
+            snapshot.getNomeServico(),
+            snapshot.getPrazoEntregaDias(),
+            snapshot.getValor(),
+            snapshot.isFreteGratis()
+        );
+    }
+    
+    private Money calcularDescontoSimples(Cupom cupom, Money valorBase) {
+        if (valorBase == null) {
+            return Money.zero();
+        }
+        
+        if (cupom.getTipo() == Cupom.Tipo.VALOR_FIXO) {
+            return new Money(cupom.getValorDesconto());
+        } else if (cupom.getTipo() == Cupom.Tipo.PERCENTUAL) {
+            BigDecimal percentual = cupom.getValorDesconto().divide(BigDecimal.valueOf(100));
+            return valorBase.multiply(percentual);
+        }
+        
+        return Money.zero();
+    }
+    
+    private SimularCupomResponse criarRespostaInvalida(String mensagem) {
+        return new SimularCupomResponse(
+            null,
+            false,
+            mensagem,
+            Money.zero(),
+            Money.zero()
+        );
+    }
+}
