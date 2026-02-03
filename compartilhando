@@ -3265,3 +3265,121 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
 	Page<ProdutoDTO> findAllDtoResumo(Pageable pageable);	
 
 }
+
+
+package com.app.backend_alfatec_shop.frete.dto;
+
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.app.backend_alfatec_shop.frete.domain.TipoRegraFrete;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+
+@Schema(
+	    name = "OpcaoFreteDTO",
+	    description = "Opção de frete disponível para o pedido"
+	)
+public class OpcaoFreteDTO {
+
+    @Schema(
+    	    description = """
+    	    Identificador da opção de frete.
+    	    Representa um SNAPSHOT imutável da cotação no momento do cálculo.
+    	    Não referencia entidade persistente.
+    	    """,
+    	    example = "FRETE-EXPRESSO-001"
+    	)    
+    private String idOpcaoSnapshot;
+
+    @Schema(
+            description = "Transportadora responsável pelo frete"
+        )
+    private TransportadoraDTO transportadora;
+
+    
+    @Schema(
+            description = "Serviço ou modalidade de frete"
+        )
+    private ServicoFreteDTO servico;
+
+    @Schema(
+            description = "Prazo estimado de entrega em dias úteis",
+            example = "3"
+        )
+    private Integer prazoEntregaDias;
+
+    @Schema(
+            description = "Valor final do frete já considerando regras comerciais"
+        )
+    private Money valor;
+
+    @Schema(
+            description = "Indica se o frete é gratuito por regra comercial",
+            example = "false"
+        )
+    private boolean freteGratis;
+
+    @Schema(
+            description = "Classificação da opção de frete para regras e UX",
+            example = "MAIS_RAPIDO"
+        )
+    private TipoRegraFrete tipo;
+
+	public String getIdOpcaoSnapshot() {
+		return idOpcaoSnapshot;
+	}
+
+	public void setIdOpcaoSnapshot(String idOpcaoSnapshot) {
+		this.idOpcaoSnapshot = idOpcaoSnapshot;
+	}
+
+	public TransportadoraDTO getTransportadora() {
+		return transportadora;
+	}
+
+	public void setTransportadora(TransportadoraDTO transportadora) {
+		this.transportadora = transportadora;
+	}
+
+	public ServicoFreteDTO getServico() {
+		return servico;
+	}
+
+	public void setServico(ServicoFreteDTO servico) {
+		this.servico = servico;
+	}
+
+	public Integer getPrazoEntregaDias() {
+		return prazoEntregaDias;
+	}
+
+	public void setPrazoEntregaDias(Integer prazoEntregaDias) {
+		this.prazoEntregaDias = prazoEntregaDias;
+	}
+
+	public Money getValor() {
+		return valor;
+	}
+
+	public void setValor(Money valor) {
+		this.valor = valor;
+	}
+
+	public boolean isFreteGratis() {
+		return freteGratis;
+	}
+
+	public void setFreteGratis(boolean freteGratis) {
+		this.freteGratis = freteGratis;
+	}
+
+	public TipoRegraFrete getTipo() {
+		return tipo;
+	}
+
+	public void setTipo(TipoRegraFrete tipo) {
+		this.tipo = tipo;
+	}
+    
+
+}
