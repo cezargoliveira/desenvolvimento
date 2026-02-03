@@ -1,0 +1,3267 @@
+package com.app.backend_alfatec_shop.pedido.domain.model;
+
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Table(name = "itens_pedido")
+public class ItemPedido {
+    
+	@Id
+	@JdbcTypeCode(SqlTypes.VARCHAR)
+    private String id;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pedido_id", nullable = false)
+    private Pedido pedido;
+    
+    // Referência ao produto no catálogo
+    @Column(name = "produto_id", nullable = false)
+    private String produtoId;
+    
+    @Column(name = "produto_sku", nullable = false)
+    private String produtoSku;
+    
+    @Column(name = "produto_nome", nullable = false, length = 500)
+    private String produtoNome;
+    
+    @Column(name = "produto_url_imagem")
+    private String produtoUrlImagem;
+    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "preco_unitario_centavos"))
+    })
+    private Money precoUnitario;
+    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "preco_unitario_original_centavos"))
+    })
+    private Money precoUnitarioOriginal;
+    
+    @Column(nullable = false)
+    private Integer quantidade;
+    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "desconto_item_centavos"))
+    })
+    private Money descontoItem;
+    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "valor_total_item_centavos"))
+    })
+    private Money valorTotalItem;
+    
+    
+    /**
+     * Peso armazenado em gramas.
+     * Usa Money apenas como estrutura de valor inteiro imutável.
+     */    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "peso_gramas"))
+    })
+    private Money peso; // Em gramas
+    
+    @Column(name = "dimensoes", length = 50)
+    private String dimensoes; // "30x20x15" (LxAxP em cm)
+    
+    // Para gestão de inventário
+    @Column(name = "lote_estoque")
+    private String loteEstoque;
+    
+    @Column(name = "data_validade")
+    private LocalDate dataValidade;
+    
+    // Para rastreamento de comissões
+    @Column(name = "categoria_id")
+    private String categoriaId;
+    
+    @Column(name = "marca_id")
+    private String marcaId;
+    
+    // Para logística e fulfillment
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status_item")
+    private StatusItemPedido status;
+    
+    @Column(name = "codigo_rastreio_item")
+    private String codigoRastreioItem;
+    
+    @Column(name = "nota_fiscal_item")
+    private String notaFiscalItem;
+    
+    // Auditoria
+    @Column(name = "criado_em", nullable = false, updatable = false)
+    private LocalDateTime criadoEm;
+    
+    @Column(name = "atualizado_em")
+    private LocalDateTime atualizadoEm;
+
+    @Column(name = "versao_produto")
+    private Integer versaoProduto; // Para controle de mudanças no produto
+    
+    // JSON para dados variáveis (atributos do produto no momento da compra)
+    //@Column(name = "atributos_produto", columnDefinition = "JSON")
+//    @Column(name = "atributos_produto", columnDefinition = "jsonb")
+//    @JdbcTypeCode(SqlTypes.JSON)
+//    private String atributosProduto;
+//    
+    @Column(columnDefinition = "text")
+    private String atributosProduto;
+    
+    // Para cross-sell/up-sell
+    @Column(name = "sugerido_por")
+    private String sugeridoPor; // "carrinho", "recomendacao", "upsell"
+    
+
+    private Money descontoCupom = Money.zero();
+    
+    private String cupomCodigo;    
+    
+    // === CONSTRUTORES ===
+    
+    protected ItemPedido() {
+        // Para JPA/Hibernate
+    }
+    
+    private ItemPedido(Builder builder) {
+        this.id = UUID.randomUUID().toString();
+        this.pedido = builder.pedido;
+        this.produtoId = builder.produtoId;
+        this.produtoSku = builder.produtoSku;
+        this.produtoNome = builder.produtoNome;
+        this.produtoUrlImagem = builder.produtoUrlImagem;
+        this.precoUnitario = builder.precoUnitario;
+        this.precoUnitarioOriginal = builder.precoUnitarioOriginal;
+        this.quantidade = builder.quantidade;
+        this.descontoItem = builder.descontoItem;
+        this.peso = builder.peso;
+        this.dimensoes = builder.dimensoes;
+        this.categoriaId = builder.categoriaId;
+        this.marcaId = builder.marcaId;
+        this.loteEstoque = builder.loteEstoque;
+        this.dataValidade = builder.dataValidade;
+        this.atributosProduto = builder.atributosProduto;
+        this.sugeridoPor = builder.sugeridoPor;
+        this.versaoProduto = builder.versaoProduto;
+        
+        this.status = StatusItemPedido.RESERVADO;
+        this.criadoEm = LocalDateTime.now();
+        
+        // Cálculos automáticos
+        calcularValores();
+        validarItem();
+    }
+    
+    public static ItemPedido criar(
+    	    String produtoId,
+    	    String produtoNome,
+    	    String produtoSku,
+    	    Money precoUnitario,
+    	    int quantidade,
+    	    long pesoGramas,
+    	    String dimensoes
+    	) {
+    	    return new ItemPedido.Builder()
+    	        .produtoId(produtoId)
+    	        .produtoNome(produtoNome)
+    	        .produtoSku(produtoSku)
+    	        .precoUnitario(precoUnitario)
+    	        .quantidade(quantidade)
+    	        .pesoGramas(pesoGramas)
+    	        .build();
+    	}    
+    
+    // === MÉTODOS DE NEGÓCIO ===
+    
+    private void calcularValores() {
+        Money valorBruto = precoUnitario.multiply(quantidade);
+
+        Money descontoBase = descontoItem != null ? descontoItem : Money.zero();
+        Money descontoCupomAtual = descontoCupom != null ? descontoCupom : Money.zero();
+
+        Money descontoTotal = descontoBase.add(descontoCupomAtual);
+
+        if (descontoTotal.isGreaterThan(valorBruto)) {
+            throw new IllegalStateException("Desconto total excede valor do item");
+        }
+
+        this.valorTotalItem = valorBruto.subtract(descontoTotal);
+    }
+    
+    private void validarItem() {
+        if (quantidade <= 0) {
+            throw new IllegalStateException("Quantidade deve ser maior que zero");
+        }
+        
+        if (precoUnitario.isZero() || precoUnitario.isNegative()) {
+            throw new IllegalStateException("Preço unitário deve ser positivo");
+        }
+        
+        if (valorTotalItem.isNegative()) {
+            throw new IllegalStateException("Valor total do item não pode ser negativo");
+        }
+    }
+    
+    public void atualizarQuantidade(int novaQuantidade, Money novoPrecoUnitario) {
+        if (this.status != StatusItemPedido.RESERVADO) {
+            throw new IllegalStateException(
+                "Não é possível alterar quantidade após status: " + this.status
+            );
+        }
+        
+        this.quantidade = novaQuantidade;
+        this.precoUnitario = novoPrecoUnitario;
+        calcularValores();
+        this.atualizadoEm = LocalDateTime.now();
+    }
+    
+    public void aplicarDesconto(Money desconto) {
+        if (desconto.isGreaterThan(this.valorTotalItem)) {
+            throw new IllegalStateException("Desconto excede valor total do item");
+        }
+        
+        this.descontoItem = this.descontoItem.add(desconto);
+        calcularValores();
+        this.atualizadoEm = LocalDateTime.now();
+    }
+    
+    public void atualizarStatus(StatusItemPedido novoStatus) {
+        // Validações de transição de estado
+        if (!this.status.podeTransicionarPara(novoStatus)) {
+            throw new IllegalStateException(
+                String.format("Transição inválida: %s -> %s", this.status, novoStatus)
+            );
+        }
+        
+        this.status = novoStatus;
+        this.atualizadoEm = LocalDateTime.now();
+    }
+    
+    public void vincularNotaFiscal(String numeroNota, String chaveAcesso) {
+        this.notaFiscalItem = numeroNota;
+        // Poderia armazenar chave de acesso em outro campo se necessário
+        this.atualizadoEm = LocalDateTime.now();
+    }
+    
+    public void vincularRastreio(String codigoRastreio, String urlRastreio) {
+        this.codigoRastreioItem = codigoRastreio;
+        this.atualizadoEm = LocalDateTime.now();
+    }
+    
+    // === GETTERS (alguns métodos de negócio como getters) ===
+    
+    public String getId() { return id; }
+    public Pedido getPedido() { return pedido; }
+    public String getProdutoId() { return produtoId; }
+    public String getProdutoSku() { return produtoSku; }
+    public String getProdutoNome() { return produtoNome; }
+    public Money getPrecoUnitario() { return precoUnitario; }
+    public Money getPrecoUnitarioOriginal() { return precoUnitarioOriginal; }
+    public Integer getQuantidade() { return quantidade; }
+    public Money getDescontoItem() { return descontoItem; }
+    public Money getValorTotalItem() { return valorTotalItem; }
+    public Money getPeso() { return peso; }
+    public String getDimensoes() { return dimensoes; }
+    public StatusItemPedido getStatus() { return status; }
+    public LocalDateTime getCriadoEm() { return criadoEm; }
+    public String getCategoriaId() { return categoriaId; }
+    public String getMarcaId() { return marcaId; }
+    
+    // Métodos calculados
+    public Money getValorBrutoItem() {
+        return precoUnitario.multiply(quantidade);
+    }
+    
+    public BigDecimal getPercentualDesconto() {
+        if (precoUnitarioOriginal == null || precoUnitarioOriginal.isZero()) {
+            return BigDecimal.ZERO;
+        }
+        
+        Money diferenca = precoUnitarioOriginal.subtract(precoUnitario);
+        if (diferenca.isZero() || diferenca.isNegative()) {
+            return BigDecimal.ZERO;
+        }
+        
+        return new BigDecimal(diferenca.getCentavos())
+            .divide(new BigDecimal(precoUnitarioOriginal.getCentavos()), 4, RoundingMode.HALF_EVEN)
+            .multiply(new BigDecimal("100"));
+    }
+    
+    public Money getPesoTotal() {
+        return peso.multiply(quantidade);
+    }
+    
+    // === BUILDER (Pattern) ===
+    
+    public static class Builder {
+        private Pedido pedido;
+        private String produtoId;
+        private String produtoSku;
+        private String produtoNome;
+        private String produtoUrlImagem;
+        private Money precoUnitario;
+        private Money precoUnitarioOriginal;
+        private Integer quantidade = 1;
+        private Money descontoItem = Money.zero();
+        private Money peso = Money.fromCentavos(0L); // 0 gramas por padrão
+        private String dimensoes;
+        private String categoriaId;
+        private String marcaId;
+        private String loteEstoque;
+        private LocalDate dataValidade;
+        private String atributosProduto;
+        private String sugeridoPor;
+        private Integer versaoProduto = 1;
+        
+        public Builder pedido(Pedido pedido) {
+            this.pedido = pedido;
+            return this;
+        }
+        
+        public Builder produtoId(String produtoId) {
+            this.produtoId = Objects.requireNonNull(produtoId, "produtoId não pode ser nulo");
+            return this;
+        }
+        
+        public Builder produtoSku(String produtoSku) {
+            this.produtoSku = Objects.requireNonNull(produtoSku, "produtoSku não pode ser nulo");
+            return this;
+        }
+        
+        public Builder produtoNome(String produtoNome) {
+            this.produtoNome = Objects.requireNonNull(produtoNome, "produtoNome não pode ser nulo");
+            return this;
+        }
+        
+        public Builder produtoUrlImagem(String produtoUrlImagem) {
+            this.produtoUrlImagem = produtoUrlImagem;
+            return this;
+        }
+        
+        public Builder precoUnitario(Money precoUnitario) {
+            this.precoUnitario = Objects.requireNonNull(precoUnitario, "precoUnitario não pode ser nulo");
+            return this;
+        }
+        
+        public Builder precoUnitarioOriginal(Money precoUnitarioOriginal) {
+            this.precoUnitarioOriginal = precoUnitarioOriginal;
+            return this;
+        }
+        
+        public Builder quantidade(Integer quantidade) {
+            if (quantidade == null || quantidade <= 0) {
+                throw new IllegalArgumentException("Quantidade deve ser maior que zero");
+            }
+            this.quantidade = quantidade;
+            return this;
+        }
+        
+        public Builder descontoItem(Money descontoItem) {
+            this.descontoItem = descontoItem != null ? descontoItem : Money.zero();
+            return this;
+        }
+        
+        public Builder pesoGramas(Long gramas) {
+            this.peso = Money.fromCentavos(gramas); // Reutilizando Money para peso em gramas
+            return this;
+        }
+        
+        public Builder dimensoes(String largura, String altura, String profundidade) {
+            this.dimensoes = String.format("%sx%sx%s", largura, altura, profundidade);
+            return this;
+        }
+        
+        public Builder dimensoes(String dimensoes) {
+            this.dimensoes = dimensoes;
+            return this;
+        }        
+        
+        public Builder categoriaId(String categoriaId) {
+            this.categoriaId = categoriaId;
+            return this;
+        }
+        
+        public Builder marcaId(String marcaId) {
+            this.marcaId = marcaId;
+            return this;
+        }
+        
+        public Builder loteEstoque(String loteEstoque) {
+            this.loteEstoque = loteEstoque;
+            return this;
+        }
+        
+        public Builder dataValidade(LocalDate dataValidade) {
+            this.dataValidade = dataValidade;
+            return this;
+        }
+        
+        public Builder atributosProduto(Map<String, String> atributos) {
+            if (atributos != null && !atributos.isEmpty()) {
+                try {
+                    this.atributosProduto = new ObjectMapper().writeValueAsString(atributos);
+                } catch (JsonProcessingException e) {
+                    throw new IllegalArgumentException("Erro ao serializar atributos", e);
+                }
+            }
+            return this;
+        }
+        
+        public Builder sugeridoPor(String sugeridoPor) {
+            this.sugeridoPor = sugeridoPor;
+            return this;
+        }
+        
+        public Builder versaoProduto(Integer versaoProduto) {
+            this.versaoProduto = versaoProduto != null ? versaoProduto : 1;
+            return this;
+        }
+        
+        public ItemPedido build() {
+            Objects.requireNonNull(pedido, "Pedido não pode ser nulo");
+            Objects.requireNonNull(produtoId, "ProdutoId não pode ser nulo");
+            Objects.requireNonNull(produtoSku, "ProdutoSku não pode ser nulo");
+            Objects.requireNonNull(produtoNome, "ProdutoNome não pode ser nulo");
+            Objects.requireNonNull(precoUnitario, "PrecoUnitario não pode ser nulo");
+            
+            // Se preço original não foi informado, usa o mesmo do unitário
+            if (precoUnitarioOriginal == null) {
+                precoUnitarioOriginal = precoUnitario;
+            }
+            
+            return new ItemPedido(this);
+        }
+    }
+    
+    // === ENUMS ===
+    
+    public enum StatusItemPedido {
+        RESERVADO("Reservado no estoque"),
+        CONFIRMADO("Confirmado para preparação"),
+        SEPARACAO("Em separação"),
+        EMBALADO("Embalado"),
+        FATURADO("Faturado"),
+        ENVIADO("Enviado"),
+        ENTREGUE("Entregue"),
+        DEVOLVIDO("Devolvido"),
+        CANCELADO("Cancelado"),
+        TROCA_AUTORIZADA("Troca Autorizada"),
+        TROCA_RECEBIDA("Troca Recebida"),
+        TROCA_RECUSADA("Troca Recusada");
+        
+        private final String descricao;
+        
+        StatusItemPedido(String descricao) {
+            this.descricao = descricao;
+        }
+        
+        public String getDescricao() {
+            return descricao;
+        }
+        
+        public boolean podeTransicionarPara(StatusItemPedido novoStatus) {
+            // Matriz de transições permitidas com tipos explícitos
+            Map<StatusItemPedido, Set<StatusItemPedido>> transicoes = Map.ofEntries(
+                Map.entry(RESERVADO, Set.of(CONFIRMADO, CANCELADO)),
+                Map.entry(CONFIRMADO, Set.of(SEPARACAO, CANCELADO, TROCA_AUTORIZADA)),
+                Map.entry(SEPARACAO, Set.of(EMBALADO, CANCELADO)),
+                Map.entry(EMBALADO, Set.of(FATURADO, CANCELADO)),
+                Map.entry(FATURADO, Set.of(ENVIADO, CANCELADO)),
+                Map.entry(ENVIADO, Set.of(ENTREGUE, DEVOLVIDO, TROCA_AUTORIZADA)),
+                Map.entry(ENTREGUE, Set.of(TROCA_AUTORIZADA)),
+                Map.entry(DEVOLVIDO, Set.of(TROCA_RECEBIDA, TROCA_RECUSADA)),
+                Map.entry(TROCA_AUTORIZADA, Set.of(TROCA_RECEBIDA, TROCA_RECUSADA)),
+                Map.entry(TROCA_RECEBIDA, Set.of()),
+                Map.entry(TROCA_RECUSADA, Set.of()),
+                Map.entry(CANCELADO, Set.of())
+            );
+            
+            return transicoes.getOrDefault(this, Set.of()).contains(novoStatus);
+        }
+    }
+    
+    public void setPesoGramas(Integer pesoGramas) {
+        if (pesoGramas == null) {
+            this.peso = Money.fromCentavos(0L);
+        } else {
+            this.peso = Money.fromCentavos(pesoGramas.longValue());
+        }
+    }
+    
+    public Integer getPesoGramas() {
+        if (this.peso == null) {
+            return 0;
+        }
+        return this.peso.getCentavos().intValue();
+    }    
+    
+    
+    public void aplicarDescontoCupom(Money desconto, String codigoCupom) {
+        this.descontoCupom = desconto;
+        this.cupomCodigo = codigoCupom;
+        calcularValores();
+    }
+
+    public void removerDescontoCupom(String codigoCupom) {
+        if (codigoCupom.equals(this.cupomCodigo)) {
+            this.descontoCupom = Money.zero();
+            this.cupomCodigo = null;
+            calcularValores();
+        }
+    }    
+    
+    // === EQUALS/HASHCODE/TOSTRING ===
+    
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof ItemPedido other)) return false;
+        return id != null && id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
+    } 
+    
+    @Override
+    public String toString() {
+        return String.format("ItemPedido{id='%s', produto='%s', quantidade=%d, total=%s}", 
+            id, produtoNome, quantidade, valorTotalItem.formatar());
+    }
+
+	public String getProdutoUrlImagem() {
+		return produtoUrlImagem;
+	}
+
+	public void setProdutoUrlImagem(String produtoUrlImagem) {
+		this.produtoUrlImagem = produtoUrlImagem;
+	}
+
+	public String getLoteEstoque() {
+		return loteEstoque;
+	}
+
+	public void setLoteEstoque(String loteEstoque) {
+		this.loteEstoque = loteEstoque;
+	}
+
+	public LocalDate getDataValidade() {
+		return dataValidade;
+	}
+
+	public void setDataValidade(LocalDate dataValidade) {
+		this.dataValidade = dataValidade;
+	}
+
+	public String getCodigoRastreioItem() {
+		return codigoRastreioItem;
+	}
+
+	public void setCodigoRastreioItem(String codigoRastreioItem) {
+		this.codigoRastreioItem = codigoRastreioItem;
+	}
+
+	public String getNotaFiscalItem() {
+		return notaFiscalItem;
+	}
+
+	public void setNotaFiscalItem(String notaFiscalItem) {
+		this.notaFiscalItem = notaFiscalItem;
+	}
+
+	public LocalDateTime getAtualizadoEm() {
+		return atualizadoEm;
+	}
+
+	public void setAtualizadoEm(LocalDateTime atualizadoEm) {
+		this.atualizadoEm = atualizadoEm;
+	}
+
+	public Integer getVersaoProduto() {
+		return versaoProduto;
+	}
+
+	public void setVersaoProduto(Integer versaoProduto) {
+		this.versaoProduto = versaoProduto;
+	}
+
+	public String getAtributosProduto() {
+		return atributosProduto;
+	}
+
+	public void setAtributosProduto(String atributosProduto) {
+		this.atributosProduto = atributosProduto;
+	}
+
+	public String getSugeridoPor() {
+		return sugeridoPor;
+	}
+
+	public void setSugeridoPor(String sugeridoPor) {
+		this.sugeridoPor = sugeridoPor;
+	}
+
+	public void setPedido(Pedido pedido) {
+		this.pedido = pedido;
+	}
+
+	public void setProdutoId(String produtoId) {
+		this.produtoId = produtoId;
+	}
+
+	public void setProdutoSku(String produtoSku) {
+		this.produtoSku = produtoSku;
+	}
+
+	public void setProdutoNome(String produtoNome) {
+		this.produtoNome = produtoNome;
+	}
+
+	public void setPrecoUnitario(Money precoUnitario) {
+		this.precoUnitario = precoUnitario;
+	}
+
+	public void setPrecoUnitarioOriginal(Money precoUnitarioOriginal) {
+		this.precoUnitarioOriginal = precoUnitarioOriginal;
+	}
+
+	public void setQuantidade(Integer quantidade) {
+		this.quantidade = quantidade;
+	}
+
+	public void setDescontoItem(Money descontoItem) {
+		this.descontoItem = descontoItem;
+	}
+
+	public void setValorTotalItem(Money valorTotalItem) {
+		this.valorTotalItem = valorTotalItem;
+	}
+
+	public void setPeso(Money peso) {
+		this.peso = peso;
+	}
+
+	public void setDimensoes(String dimensoes) {
+		this.dimensoes = dimensoes;
+	}
+
+	public void setCategoriaId(String categoriaId) {
+		this.categoriaId = categoriaId;
+	}
+
+	public void setMarcaId(String marcaId) {
+		this.marcaId = marcaId;
+	}
+
+	public void setStatus(StatusItemPedido status) {
+		this.status = status;
+	}
+
+	public void setCriadoEm(LocalDateTime criadoEm) {
+		this.criadoEm = criadoEm;
+	}
+    
+    public void setCupomCodigo(String cupomCodigo) {
+		this.cupomCodigo = cupomCodigo;
+	}
+    
+    public String getCupomCodigo() {
+		return cupomCodigo;
+	}
+    
+  
+    
+}
+
+
+package com.app.backend_alfatec_shop.pedido.domain.model;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.app.backend_alfatec_shop.component.pattern.TipoAplicacaoCupom;
+import com.app.backend_alfatec_shop.component.pattern.TipoCupom;
+import com.app.backend_alfatec_shop.frete.domain.RegraFreteCupom;
+
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.JoinColumn;
+
+@Entity
+public class Cupom {
+	
+    @Id
+    @GeneratedValue
+    private UUID id;	
+	
+	@Column(unique = true)
+	private String codigo;
+       
+	@Enumerated(EnumType.STRING)
+	private TipoCupom tipo; // PERCENTUAL, VALOR_FIXO, FRETE_GRATIS
+
+	@Enumerated(EnumType.STRING)
+	private TipoAplicacaoCupom tipoAplicacao; // PERCENTUAL, VALOR_FIXO, FRETE_GRATIS
+
+    @Embedded
+    @AttributeOverrides({
+    	@AttributeOverride(name = "centavos", column = @Column(name = "valor_centavos"))
+    })
+    private Money valor; // Para VALOR_FIXO
+        
+    private BigDecimal percentual; // Para PERCENTUAL (10 = 10%)
+        
+    @Embedded
+    @AttributeOverrides({
+       @AttributeOverride(name = "centavos", column = @Column(name = "max_desconto_centavos"))
+    })
+    private Money valorMaximoDesconto;
+    
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "centavos", column = @Column(name = "valor_minimo_centavos"))
+    })
+    private Money valorMinimo;
+    
+    @Column(name = "data_inicio")
+    private LocalDate dataInicio;
+    
+    @Column(name = "data_fim")
+    private LocalDate dataFim;
+    
+    @Column(name = "ativo")
+    private Boolean ativo = true;
+    
+    @Column(name = "uso_unico")
+    private Boolean usoUnico = false;
+    
+    @ElementCollection
+    @CollectionTable(name = "cupom_categorias", 
+                     joinColumns = @JoinColumn(name = "cupom_id"))
+    @Column(name = "categoria_id")
+    private List<String> categoriasPermitidas = new ArrayList<>();
+    
+    @Column(name = "quantidade_maxima_uso")
+    private Integer quantidadeMaximaUso;
+    
+    @Column(name = "quantidade_usada")
+    private Integer quantidadeUsada = 0;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(name = "regra_frete")
+    private RegraFreteCupom regraFrete;    
+    
+    private BigDecimal percentualFrete;   // ex: 50%
+    
+    @Embedded
+    @AttributeOverrides({
+    	@AttributeOverride(
+    			name = "centavos",
+    			column = @Column(name = "valor_desconto_frete_centavos")
+    			)
+    })    
+    private Money valorDescontoFrete;     // ex: R$ 20,00
+
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(
+            name = "centavos",
+            column = @Column(name = "teto_desconto_frete_centavos")
+        )
+    })    
+    private Money tetoDescontoFrete;      // ex: até R$ 15,00    
+    
+    // MÉTODO SIMPLIFICADO DE VALIDAÇÃO
+    public Boolean isValidoParaPedido(Pedido pedido) {
+        // Implementação básica - a validação completa está no serviço
+        if (!ativo) return false;
+        
+        LocalDate hoje = LocalDate.now();
+        if (dataInicio != null && hoje.isBefore(dataInicio)) return false;
+        if (dataFim != null && hoje.isAfter(dataFim)) return false;
+        
+        if (valorMinimo != null && pedido.getSubtotal().isLessThan(valorMinimo)) {
+            return false;
+        }
+        
+        return true;
+    }    
+ 
+    
+       
+    // Cálculo seguro do desconto
+    public Money calcularDesconto(Money base) {
+        if (base == null || base.isZero()) {
+            return Money.zero();
+        }
+
+        Money desconto = Money.zero();
+
+        switch (tipo) {
+            case VALOR_FIXO:
+                desconto = valor != null ? valor : Money.zero();
+                break;
+
+            case PERCENTUAL:
+                if (percentual == null) return Money.zero();
+                BigDecimal fator = percentual
+                    .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_EVEN);
+                desconto = base.multiply(fator);
+                break;
+
+            case FRETE_GRATIS:
+                return Money.zero();
+        }
+
+        if (valorMaximoDesconto != null && desconto.isGreaterThan(valorMaximoDesconto)) {
+            desconto = valorMaximoDesconto;
+        }
+
+        return desconto.isGreaterThan(base) ? base : desconto;
+    }
+    
+    
+    public Money calcularDescontoFrete(Money valorFrete) {
+        if (valorFrete.isZero()) return Money.zero();
+
+        return switch (regraFrete) {
+
+            case FRETE_GRATIS ->
+                valorFrete;
+
+            case DESCONTO_PERCENTUAL ->
+                valorFrete.multiply(percentualFrete.divide(new BigDecimal("100")));
+
+            case DESCONTO_VALOR_FIXO ->
+                valorDescontoFrete.isGreaterThan(valorFrete)
+                    ? valorFrete
+                    : valorDescontoFrete;
+
+            case DESCONTO_COM_TETO -> {
+                Money descontoCalculado =
+                    valorFrete.multiply(percentualFrete.divide(new BigDecimal("100")));
+
+                yield descontoCalculado.isGreaterThan(tetoDescontoFrete)
+                    ? tetoDescontoFrete
+                    : descontoCalculado;
+            }
+        };
+    }    
+    
+    public String getCodigo() {
+		return codigo;
+	}
+    
+    public void setCodigo(String codigo) {
+		this.codigo = codigo;
+	}
+     
+    public TipoAplicacaoCupom getTipoAplicacao() {
+		return tipoAplicacao;
+	}
+    
+    public void setTipoAplicacao(TipoAplicacaoCupom tipoAplicacao) {
+		this.tipoAplicacao = tipoAplicacao;
+	}
+    
+    public void setTipo(TipoCupom tipo) {
+		this.tipo = tipo;
+	}
+    
+    public TipoCupom getTipo() {
+		return tipo;
+	}
+
+
+
+	public Money getValor() {
+		return valor;
+	}
+
+
+
+	public void setValor(Money valor) {
+		this.valor = valor;
+	}
+
+
+
+	public BigDecimal getPercentual() {
+		return percentual;
+	}
+
+
+
+	public void setPercentual(BigDecimal percentual) {
+		this.percentual = percentual;
+	}
+
+
+
+	public Money getValorMaximoDesconto() {
+		return valorMaximoDesconto;
+	}
+
+
+
+	public void setValorMaximoDesconto(Money valorMaximoDesconto) {
+		this.valorMaximoDesconto = valorMaximoDesconto;
+	}
+
+
+
+	public Money getValorMinimo() {
+		return valorMinimo;
+	}
+
+
+
+	public void setValorMinimo(Money valorMinimo) {
+		this.valorMinimo = valorMinimo;
+	}
+
+
+
+	public LocalDate getDataInicio() {
+		return dataInicio;
+	}
+
+
+
+	public void setDataInicio(LocalDate dataInicio) {
+		this.dataInicio = dataInicio;
+	}
+
+
+
+	public LocalDate getDataFim() {
+		return dataFim;
+	}
+
+
+
+	public void setDataFim(LocalDate dataFim) {
+		this.dataFim = dataFim;
+	}
+
+
+
+	public Boolean getAtivo() {
+		return ativo;
+	}
+
+
+
+	public void setAtivo(Boolean ativo) {
+		this.ativo = ativo;
+	}
+
+
+
+	public Boolean getUsoUnico() {
+		return usoUnico;
+	}
+
+
+
+	public void setUsoUnico(Boolean usoUnico) {
+		this.usoUnico = usoUnico;
+	}
+
+
+
+	public List<String> getCategoriasPermitidas() {
+		return categoriasPermitidas;
+	}
+
+
+
+	public void setCategoriasPermitidas(List<String> categoriasPermitidas) {
+		this.categoriasPermitidas = categoriasPermitidas;
+	}
+
+
+
+	public Integer getQuantidadeMaximaUso() {
+		return quantidadeMaximaUso;
+	}
+
+
+
+	public void setQuantidadeMaximaUso(Integer quantidadeMaximaUso) {
+		this.quantidadeMaximaUso = quantidadeMaximaUso;
+	}
+
+
+
+	public Integer getQuantidadeUsada() {
+		return quantidadeUsada;
+	}
+
+
+
+	public void setQuantidadeUsada(Integer quantidadeUsada) {
+		this.quantidadeUsada = quantidadeUsada;
+	}
+
+	public RegraFreteCupom getRegraFrete() {
+		return regraFrete;
+	}
+	
+	public void setRegraFrete(RegraFreteCupom regraFrete) {
+		this.regraFrete = regraFrete;
+	}
+
+
+
+	public BigDecimal getPercentualFrete() {
+		return percentualFrete;
+	}
+
+
+
+	public void setPercentualFrete(BigDecimal percentualFrete) {
+		this.percentualFrete = percentualFrete;
+	}
+
+	public Money getValorDescontoFrete() {
+		return valorDescontoFrete;
+	}
+
+	public void setValorDescontoFrete(Money valorDescontoFrete) {
+		this.valorDescontoFrete = valorDescontoFrete;
+	}
+
+	public Money getTetoDescontoFrete() {
+		return tetoDescontoFrete;
+	}
+
+	public void setTetoDescontoFrete(Money tetoDescontoFrete) {
+		this.tetoDescontoFrete = tetoDescontoFrete;
+	}
+    
+	public UUID getId() {
+		return id;
+	}
+	
+	public void setId(UUID id) {
+		this.id = id;
+	}
+    
+}
+
+
+package com.app.backend_alfatec_shop.component.pattern;
+
+public enum TipoAplicacaoCupom {
+    SUBTOTAL,
+    FRETE,
+    ITEM_ESPECIFICO
+}
+
+package com.app.backend_alfatec_shop.component.pattern;
+
+public enum TipoCupom {
+	PERCENTUAL,
+	VALOR_FIXO,
+	FRETE_GRATIS
+}   
+
+package com.app.backend_alfatec_shop.entity;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.SequenceGenerator;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "produto")
+public class Produto {
+	
+	@Id
+	@SequenceGenerator(name = "seq_produto", sequenceName = "seq_produto", initialValue = 1, allocationSize = 1)
+	@GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_produto")
+	private Long id;
+
+	@Column(nullable = false)
+	private String nome;
+
+	@Column(columnDefinition = "TEXT",nullable = false)
+	private String descricao;
+
+	
+    @Column(name = "uuid", nullable = false, unique = true, updatable = false)
+    private UUID uuid = UUID.randomUUID();  // ← ID de negócio	
+
+	private String sku;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "marca_id")	
+	private Marca marca;
+
+	private BigDecimal preco;
+
+	private BigDecimal precoPromocional;
+ 
+	@Column(nullable = false)
+	private int quantidadeEstoque;
+
+	@Column(nullable = false)
+	private Boolean ativo = Boolean.TRUE;
+
+	private BigDecimal peso;
+
+	private BigDecimal altura;
+
+	private BigDecimal largura;
+
+	private BigDecimal comprimento;
+
+	@Column(columnDefinition = "TEXT")
+	private String imagemPrincipalUrl;
+	
+	@OneToMany(mappedBy = "produto",
+	           cascade = CascadeType.ALL,
+	           orphanRemoval = true,
+	           fetch = FetchType.LAZY)
+	@OrderBy("ordem ASC")
+	private List<ProdutoImagem> imagens = new ArrayList<>();
+	
+	@ManyToOne
+	@JoinColumn(name = "empresa_id", nullable = false)
+	private Empresa empresa;
+
+	@Column(updatable = false, nullable = false)
+	private LocalDateTime dataCriacao;
+
+	@Column(nullable = false)
+	private LocalDateTime dataAtualizacao;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "categoria_id", nullable = false)
+	private Categoria categoria;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "localizacao_id")
+	private Localizacao localizacao;
+	
+	@Column(nullable = false)
+	private Boolean destaque = Boolean.FALSE;
+	
+	@Column(nullable = false)
+	private Boolean freteGratis = Boolean.FALSE;
+	
+	
+	@PrePersist
+	public void prePersist() {
+	    LocalDateTime agora = LocalDateTime.now();
+	    this.dataCriacao = agora;
+	    this.dataAtualizacao = agora;
+	}
+
+	@PreUpdate
+	public void preUpdate() {
+	    this.dataAtualizacao = LocalDateTime.now();
+	}	
+	
+	public Produto() {
+		this.uuid = UUID.randomUUID();		
+		this.preco = BigDecimal.ZERO;
+		this.precoPromocional = BigDecimal.ZERO;
+		this.peso = BigDecimal.ZERO;
+		this.altura = BigDecimal.ZERO;
+		this.largura = BigDecimal.ZERO;
+		this.comprimento = BigDecimal.ZERO;		
+	}	
+	
+	
+    public boolean temEstoqueDisponivel(int quantidade) {
+        return this.quantidadeEstoque >= quantidade;
+    }	
+
+	public Long getId() {
+		return id;
+	}
+
+	public void setId(Long id) {
+		this.id = id;
+	}
+
+	public String getNome() {
+		return nome;
+	}
+
+	public void setNome(String nome) {
+		this.nome = nome;
+	}
+
+	public String getDescricao() {
+		return descricao;
+	}
+
+	public void setDescricao(String descricao) {
+		this.descricao = descricao;
+	}
+
+	public String getSku() {
+		return sku;
+	}
+
+	public void setSku(String sku) {
+		this.sku = sku;
+	}
+
+	public Marca getMarca() {
+		return marca;
+	}
+
+	public void setMarca(Marca marca) {
+		this.marca = marca;
+	}
+
+	public BigDecimal getPreco() {
+		return preco;
+	}
+
+	public void setPreco(BigDecimal preco) {
+		this.preco = preco;
+	}
+
+	public BigDecimal getPrecoPromocional() {
+		return precoPromocional;
+	}
+
+	public void setPrecoPromocional(BigDecimal precoPromocional) {
+		this.precoPromocional = precoPromocional;
+	}
+
+	public int getQuantidadeEstoque() {
+		return quantidadeEstoque;
+	}
+
+	public void setQuantidadeEstoque(int quantidadeEstoque) {
+		this.quantidadeEstoque = quantidadeEstoque;
+	}
+
+	public Boolean getAtivo() {
+		return ativo;
+	}
+
+	public void setAtivo(Boolean ativo) {
+		this.ativo = ativo;
+	}
+
+	public BigDecimal getPeso() {
+		return peso;
+	}
+
+	public void setPeso(BigDecimal peso) {
+		this.peso = peso;
+	}
+
+	public BigDecimal getAltura() {
+		return altura;
+	}
+
+	public void setAltura(BigDecimal altura) {
+		this.altura = altura;
+	}
+
+	public BigDecimal getLargura() {
+		return largura;
+	}
+
+	public void setLargura(BigDecimal largura) {
+		this.largura = largura;
+	}
+
+	public BigDecimal getComprimento() {
+		return comprimento;
+	}
+
+	public void setComprimento(BigDecimal comprimento) {
+		this.comprimento = comprimento;
+	}
+
+	public LocalDateTime getDataCriacao() {
+		return dataCriacao;
+	}
+
+	public void setDataCriacao(LocalDateTime dataCriacao) {
+		this.dataCriacao = dataCriacao;
+	}
+
+	public LocalDateTime getDataAtualizacao() {
+		return dataAtualizacao;
+	}
+
+	public void setDataAtualizacao(LocalDateTime dataAtualizacao) {
+		this.dataAtualizacao = dataAtualizacao;
+	}
+
+	public String getImagemPrincipalUrl() {
+		return imagemPrincipalUrl;
+	}
+	
+	public void setImagemPrincipalUrl(String imagemPrincipalUrl) {
+		this.imagemPrincipalUrl = imagemPrincipalUrl;
+	}
+	
+	public Categoria getCategoria() {
+		return categoria;
+	}
+	
+	public void setCategoria(Categoria categoria) {
+		this.categoria = categoria;
+	}
+	
+	public Empresa getEmpresa() {
+		return empresa;
+	}
+	
+	public void setEmpresa(Empresa empresa) {
+		this.empresa = empresa;
+	}
+
+	public boolean getDestaque() {
+		return destaque;
+	}
+
+	public void setDestaque(Boolean destaque) {
+		this.destaque = destaque;
+	}
+
+	public boolean getFreteGratis() {
+		return freteGratis;
+	}
+
+	public void setFreteGratis(Boolean freteGratis) {
+		this.freteGratis = freteGratis;
+	}
+	
+	public List<ProdutoImagem> getImagens() {
+		return imagens;
+	}
+	
+	public void setImagens(List<ProdutoImagem> imagens) {
+		this.imagens = imagens;
+	}
+	
+	public Localizacao getLocalizacao() {
+		return localizacao;
+	}
+	
+	public void setLocalizacao(Localizacao localizacao) {
+		this.localizacao = localizacao;
+	}
+	
+	
+}
+
+
+package com.app.backend_alfatec_shop.pedido.domain.model;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.data.annotation.Transient;
+
+import com.app.backend_alfatec_shop.cliente.domain.model.Cliente;
+import com.app.backend_alfatec_shop.cliente.domain.model.EnderecoCliente;
+import com.app.backend_alfatec_shop.cliente.domain.model.SnapshotCliente;
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.app.backend_alfatec_shop.component.pattern.StatusPedido;
+import com.app.backend_alfatec_shop.component.pattern.TipoAplicacaoCupom;
+import com.app.backend_alfatec_shop.entity.Empresa;
+import com.app.backend_alfatec_shop.entrega.domain.model.SnapshotEnderecoEntrega;
+import com.app.backend_alfatec_shop.financeiro.domain.valueobject.MetodoPagamento;
+import com.app.backend_alfatec_shop.frete.domain.FreteAplicado;
+import com.app.backend_alfatec_shop.frete.domain.SnapshotFrete;
+import com.app.backend_alfatec_shop.pedido.domain.event.MetodoPagamentoAlteradoEvent;
+import com.app.backend_alfatec_shop.pedido.domain.event.PedidoPagoEvent;
+
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.ForeignKey;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "pedidos")
+public class Pedido {
+
+	@Id
+	@GeneratedValue
+	private UUID id;
+	
+    @Column(name = "numero", unique = true, nullable = false, updatable = false)
+    private String numero;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "cliente_id", nullable = false)
+	private Cliente cliente;
+
+	@Enumerated(EnumType.STRING)
+	private StatusPedido status;
+
+	@OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
+	private List<ItemPedido> itens = new ArrayList<>();
+
+	@JoinColumn(name = "empresa_id")
+	@ManyToOne(fetch = FetchType.LAZY)
+	private Empresa empresa;
+
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "subtotal_centavos")) })
+	private Money subtotal = Money.zero();
+
+	@Embedded
+	private FreteAplicado freteAplicado;
+	
+	@Embedded
+	private SnapshotCliente snapshotCliente;	
+
+	@Embedded
+	private SnapshotEnderecoEntrega snapshotEntrega;	
+
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "frete_centavos")) })
+	private Money valorFrete = Money.zero();
+
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "frete_original_centavos")) })
+	private Money valorFreteOriginal;
+
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "desconto_centavos")) })
+	private Money valorDesconto = Money.zero();
+
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "total_centavos")) })
+	private Money valorTotal = Money.zero();
+
+	// Campos de logística
+	@Embedded
+	@AttributeOverrides({ @AttributeOverride(name = "centavos", column = @Column(name = "peso_total_centavos")) })
+	private Money pesoTotalPedido = Money.zero(); // Em gramas
+
+	@Column(name = "quantidade_total_itens")
+	private Integer quantidadeTotalItens = 0;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "cupom_id")
+	private Cupom cupomAplicado;
+
+	@Embedded
+	private DadosLogisticosPedido dadosLogisticos;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "endereco_entrega_id", nullable = false, foreignKey = @ForeignKey(name = "fk_pedido_endereco_entrega"))
+	private EnderecoCliente enderecoEntrega;
+
+	@Column(name = "data_criacao", nullable = false, updatable = false)
+	private LocalDateTime dataCriacao;
+
+	@Column(name = "data_atualizacao", nullable = false)
+	private LocalDateTime dataAtualizacao;
+
+	@Column(name = "data_cancelamento")
+	private LocalDateTime dataCancelamento;
+
+	@Column(name = "data_pagamento")
+	private LocalDateTime dataPagamento;
+			
+			
+	// ✅ NOVO: Data limite para pagamento baseada no método de pagamento
+	@Column(name = "data_limite_pagamento", nullable = false)
+	private LocalDateTime dataLimitePagamento;
+
+	// ✅ NOVO: Método de pagamento escolhido
+	@Enumerated(EnumType.STRING)
+	@Column(name = "metodo_pagamento", length = 30)
+	private MetodoPagamento metodoPagamento;
+
+	@Column
+	private String observacaoCancelamento;
+	
+    private transient final List<Object> eventosDominio = new ArrayList<>();
+	
+	protected Pedido() {
+	}
+
+//    public static Pedido criar(Cliente cliente) {
+//        Pedido pedido = new Pedido();
+//        pedido.cliente = cliente;
+//        pedido.status = StatusPedido.CRIADO;
+//        pedido.dataCriacao = LocalDateTime.now();
+//        pedido.dataAtualizacao = LocalDateTime.now();
+//        return pedido;
+//    }
+
+    public static Pedido criar(Cliente cliente, Empresa empresa, EnderecoCliente enderecoEntrega) {
+        if (cliente == null)
+            throw new IllegalArgumentException("Cliente não pode ser nulo");
+        if (empresa == null)
+            throw new IllegalArgumentException("Empresa não pode ser nulo");
+        if (enderecoEntrega == null)
+            throw new IllegalArgumentException("EnderecoEntrega não pode ser nulo");
+
+        Pedido pedido = new Pedido();
+        pedido.cliente = cliente;
+        pedido.empresa = empresa;
+        pedido.enderecoEntrega = enderecoEntrega;
+        pedido.status = StatusPedido.CRIADO;
+        pedido.dataCriacao = LocalDateTime.now();
+        pedido.dataAtualizacao = LocalDateTime.now();
+        // NÃO gera número aqui - será feito no repository/serviço
+        return pedido;
+    }
+	
+    // Método para gerar número do pedido usando sequence
+    // Este método deve ser chamado pelo repository/serviço
+    public void gerarNumeroPedido(Long sequencia) {
+        if (this.numero != null) {
+            throw new IllegalStateException("Número do pedido já foi definido");
+        }
+        
+        // Formato: PED-YYYYMMDD-000001
+        String data = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        this.numero = String.format("PED-%s-%06d", data, sequencia);
+    }	
+
+	@PrePersist
+	protected void onCreate() {
+		if (dataCriacao == null) {
+			dataCriacao = LocalDateTime.now();
+		}
+		dataAtualizacao = LocalDateTime.now();
+	}
+
+	@PreUpdate
+	protected void onUpdate() {
+		dataAtualizacao = LocalDateTime.now();
+	}
+	
+	
+    // ✅ MÉTODO PÚBLICO para atribuição controlada
+    public void atribuirNumero(String numero) {
+        if (this.numero != null) {
+            throw new IllegalStateException("Pedido já possui número: " + this.numero);
+        }
+        if (numero == null || numero.trim().isEmpty()) {
+            throw new IllegalArgumentException("Número não pode ser nulo ou vazio");
+        }
+        this.numero = numero;
+    }
+    
+
+	/**
+	 * Métodos MODIFICADOS: quando estrutura muda, apenas sinaliza necessidade de
+	 * redistribuição O CupomService será responsável por detectar e executar a
+	 * redistribuição
+	 */
+	public void adicionarItem(ItemPedido item) {
+		if (item == null) {
+			throw new IllegalArgumentException("Item não pode ser nulo");
+		}
+
+		// Verificar se o item já existe
+		boolean produtoJaExiste = itens.stream().anyMatch(i -> i.getProdutoId().equals(item.getProdutoId()));
+
+		if (produtoJaExiste) {
+			throw new IllegalStateException(String.format("Produto %s já existe no pedido", item.getProdutoId()));
+		}
+
+		item.setPedido(this);
+		itens.add(item);
+
+		// REMOVEMOS A REDISTRIBUIÇÃO DIRETA
+		// O CupomService será notificado para redistribuir se necessário
+		recalcularTotais();
+		atualizarDadosLogisticos();
+	}
+
+	public void removerItem(String itemId) {
+		ItemPedido item = itens.stream().filter(i -> i.getId().equals(itemId)).findFirst()
+				.orElseThrow(() -> new IllegalArgumentException("Item não encontrado"));
+
+		if (item.getStatus() != ItemPedido.StatusItemPedido.RESERVADO) {
+			throw new IllegalStateException("Não é possível remover item com status: " + item.getStatus());
+		}
+
+		itens.remove(item);
+		item.setPedido(null);
+
+		recalcularTotais();
+		atualizarDadosLogisticos();
+	}
+
+	public void atualizarQuantidadeItem(String itemId, int novaQuantidade) {
+		ItemPedido item = itens.stream().filter(i -> i.getId().equals(itemId)).findFirst()
+				.orElseThrow(() -> new IllegalArgumentException("Item não encontrado"));
+
+		item.atualizarQuantidade(novaQuantidade, item.getPrecoUnitario());
+
+		recalcularTotais();
+		atualizarDadosLogisticos();
+	}
+
+	/**
+	 * Método modificado: invalida descontos de cupom quando aplica desconto manual
+	 */
+	public void aplicarDescontoItem(String itemId, Money desconto) {
+		ItemPedido item = itens.stream().filter(i -> i.getId().equals(itemId)).findFirst()
+				.orElseThrow(() -> new IllegalArgumentException("Item não encontrado"));
+
+		// Verificar se desconto não excede valor do item
+		Money valorMaximo = item.getValorTotalItem();
+		Money descontoFinal = desconto;
+
+		// Lógica manual para min()
+		if (desconto.isGreaterThan(valorMaximo)) {
+			descontoFinal = valorMaximo;
+		}
+
+		// Lógica manual para garantir não-negativo
+		if (descontoFinal.isNegative()) {
+			descontoFinal = Money.zero();
+		}
+
+		// Se houver cupom aplicado, remover desconto do cupom deste item
+		if (cupomAplicado != null && item.getCupomCodigo() != null) {
+			item.removerDescontoCupom(cupomAplicado.getCodigo());
+		}
+
+		// Aplicar desconto manual
+		item.aplicarDesconto(descontoFinal);
+		recalcularTotais();
+	}
+
+	// ==================== MÉTODO RECALCULAR TOTAIS (CORRIGIDO)
+	// ====================
+
+	public void cancelar(String motivo, String observacao) {
+		if (!this.status.permiteCancelamento()) {
+			throw new IllegalStateException("Pedido não pode ser cancelado no status atual: " + this.status);
+		}
+
+		this.observacaoCancelamento = observacao;
+		this.status = StatusPedido.CANCELADO;
+		this.dataCancelamento = LocalDateTime.now();
+		this.dataAtualizacao = LocalDateTime.now();
+
+		// Aqui será adicionado o disparo de evento mais tarde
+	}
+
+	/**
+	 * ✅ CALCULA DATA LIMITE BASEADA NO MÉTODO DE PAGAMENTO
+	 * Baseado nas regras de mercado fornecidas:
+	 * - Pix / cartão online: 15 a 30 minutos (usaremos 30)
+	 * - Boleto: 24 a 72 horas (usaremos 48 horas)
+	 * - Checkout genérico: 30 a 60 minutos (usaremos 60)
+	 */
+
+
+	/**
+	 * ✅ Verifica se o pedido expirou (passou da data limite)
+	 */
+	public boolean estaExpirado() {
+		if (this.status != StatusPedido.AGUARDANDO_PAGAMENTO) {
+			return false; // Só verifica se estiver aguardando pagamento
+		}
+		
+		if (this.dataLimitePagamento == null) {
+			return false; // Não tem data limite definida
+		}
+		
+		return LocalDateTime.now().isAfter(this.dataLimitePagamento);
+	}
+
+	/**
+	 * ✅ Tempo restante para pagamento (em minutos)
+	 */
+	public long getTempoRestanteMinutos() {
+		if (this.status != StatusPedido.AGUARDANDO_PAGAMENTO || 
+			this.dataLimitePagamento == null) {
+			return 0;
+		}
+		
+		Duration duracao = Duration.between(LocalDateTime.now(), this.dataLimitePagamento);
+		return duracao.toMinutes();
+	}
+	
+	
+	
+    /**
+     * Marca o pedido como pago.
+     * @throws IllegalStateException se o pedido não estiver AGUARDANDO_PAGAMENTO
+     */
+    public void marcarComoPago() {
+        if (this.status != StatusPedido.AGUARDANDO_PAGAMENTO) {
+            throw new IllegalStateException(
+                String.format(
+                    "Pedido %s não pode ser pago no status atual: %s. Status esperado: %s",
+                    this.id,
+                    this.status,
+                    StatusPedido.AGUARDANDO_PAGAMENTO
+                )
+            );
+        }
+        
+        this.status = StatusPedido.PAGO;
+        this.dataAtualizacao = LocalDateTime.now();
+        this.dataPagamento = LocalDateTime.now();
+        
+        // ✅ NOVO: Registra evento de domínio para ser publicado
+        this.registrarEvento(new PedidoPagoEvent(
+            this.id,
+            this.cliente.getId(),
+            LocalDateTime.now(),
+            this.valorTotal.toBigDecimal()
+        ));
+        
+    }
+    
+    /**
+     * Registra um evento de domínio para ser publicado posteriormente.
+     */
+    public void registrarEvento(Object evento) {
+        this.eventosDominio.add(evento);
+    }
+    
+    /**
+     * Retorna e limpa os eventos de domínio registrados.
+     * Chamado pelo repository após salvar o agregado.
+     */
+    public List<Object> getEventosDominio() {
+        List<Object> eventos = new ArrayList<>(this.eventosDominio);
+        this.eventosDominio.clear();
+        return eventos;
+    }
+	
+	
+
+	// ==================== MÉTODO RECALCULAR TOTAIS (CORRIGIDO)
+	// ====================
+
+	/**
+	 * Método MODIFICADO: Recalcula totais sem redistribuir desconto Puro e
+	 * determinístico
+	 */
+	void recalcularTotais() {
+		// 1. Calcular subtotal dos itens
+		Money subtotalCalculado = itens.stream().map(ItemPedido::getValorTotalItem).reduce(Money.zero(), Money::add);
+
+		this.subtotal = subtotalCalculado;
+
+		// 2. Recalcular quantidade total de itens
+		this.quantidadeTotalItens = itens.stream().mapToInt(ItemPedido::getQuantidade).sum();
+
+		// 3. Recalcular peso total
+		Money pesoTotal = itens.stream().map(ItemPedido::getPesoTotal).reduce(Money.zero(), Money::add);
+		this.pesoTotalPedido = pesoTotal;
+
+		// 4. Recalcular valor total do pedido
+		Money totalCalculado = subtotalCalculado.add(valorFrete).subtract(valorDesconto);
+
+		validarTotal(totalCalculado);
+		this.valorTotal = totalCalculado;
+
+		// REMOVEMOS A REDISTRIBUIÇÃO AQUI!
+		// Ela será feita pelo CupomService quando necessário
+	}
+
+	public void aplicarDescontoSubtotal(Money desconto) {
+		this.valorDesconto = desconto;
+		recalcularTotais();
+	}
+
+	public void aplicarDistribuicaoDescontoCupom(Map<String, Money> distribuicao) {
+		if (distribuicao == null || distribuicao.isEmpty()) {
+			return;
+		}
+
+		// Aplicar nos itens
+		distribuicao.forEach((itemId, desconto) -> {
+			itens.stream().filter(i -> i.getId().equals(itemId)).findFirst().ifPresent(item -> {
+				// Manter o código do cupom existente
+				item.aplicarDescontoCupom(desconto, cupomAplicado.getCodigo());
+			});
+		});
+
+		// Atualizar desconto total do pedido
+		this.valorDesconto = distribuicao.values().stream().reduce(Money.zero(), Money::add);
+
+		// Recalcular totais
+		recalcularTotaisAposDistribuicao();
+	}
+
+	/**
+	 * NOVO MÉTODO: Recalcula totais APÓS distribuição de desconto Separado do
+	 * recalcularTotais() para evitar loops
+	 */
+	private void recalcularTotaisAposDistribuicao() {
+		// 1. Calcular subtotal dos itens (já com desconto aplicado)
+		Money subtotalCalculado = itens.stream().map(ItemPedido::getValorTotalItem).reduce(Money.zero(), Money::add);
+
+		this.subtotal = subtotalCalculado;
+
+		// 2. Recalcular valor total do pedido
+		Money totalCalculado = subtotalCalculado.add(valorFrete).subtract(valorDesconto);
+
+		validarTotal(totalCalculado);
+		this.valorTotal = totalCalculado;
+	}
+
+	/**
+	 * MÉTODO AUXILIAR: Sinaliza que estrutura mudou e cupom pode precisar ser
+	 * redistribuído Retorna true se houver cupom que precisa ser redistribuído
+	 */
+	public boolean precisaRedistribuirDescontoCupom() {
+		return cupomAplicado != null && cupomAplicado.getTipoAplicacao() == TipoAplicacaoCupom.ITEM_ESPECIFICO;
+	}
+
+	/**
+	 * MÉTODO AUXILIAR: Remove descontos de cupom de todos os itens Usado quando
+	 * estrutura muda e precisamos limpar antes de redistribuir
+	 */
+	public void removerDescontoCupomDosItens() {
+		if (cupomAplicado == null)
+			return;
+
+		itens.forEach(item -> item.removerDescontoCupom(cupomAplicado.getCodigo()));
+		this.valorDesconto = Money.zero();
+		recalcularTotais();
+	}
+
+	private void validarTotal(Money total) {
+		if (total.isNegative()) {
+			throw new IllegalStateException(
+					String.format("Total do pedido não pode ser negativo. Total: %s", total.formatar()));
+		}
+
+		// Verificar se desconto não é maior que subtotal + frete
+		Money maxDesconto = subtotal.add(valorFrete);
+		if (valorDesconto.isGreaterThan(maxDesconto)) {
+			throw new IllegalStateException(String.format("Desconto (%s) excede valor máximo permitido (%s)",
+					valorDesconto.formatar(), maxDesconto.formatar()));
+		}
+	}
+
+	private BigDecimal calcularVolumeTotal() {
+		return itens.stream().filter(item -> item.getDimensoes() != null).map(item -> {
+			try {
+				String[] dimensoes = item.getDimensoes().split("x");
+				if (dimensoes.length == 3) {
+					BigDecimal largura = new BigDecimal(dimensoes[0]);
+					BigDecimal altura = new BigDecimal(dimensoes[1]);
+					BigDecimal profundidade = new BigDecimal(dimensoes[2]);
+					BigDecimal volumeItem = largura.multiply(altura).multiply(profundidade);
+					return volumeItem.multiply(new BigDecimal(item.getQuantidade()));
+				}
+			} catch (Exception e) {
+				// Ignorar itens com dimensões inválidas
+			}
+			return BigDecimal.ZERO;
+		}).reduce(BigDecimal.ZERO, BigDecimal::add);
+	}
+
+	// ==================== MÉTODOS DE CONSULTA ====================
+
+	public Money getSubtotal() {
+		return subtotal;
+	}
+
+	public Money getValorFrete() {
+		return freteAplicado != null ? freteAplicado.getValor() : Money.zero();
+	}
+
+	public void setValorFrete(Money valorFrete) {
+		if (valorFrete.isNegative()) {
+			throw new IllegalArgumentException("Valor do frete não pode ser negativo");
+		}
+
+		this.valorFrete = valorFrete;
+
+		// Se tiver cupom de frete, aplicar regras
+		if (cupomAplicado != null && cupomAplicado.getTipoAplicacao() == TipoAplicacaoCupom.FRETE) {
+			Money descontoFrete = cupomAplicado.calcularDescontoFrete(valorFrete);
+			this.valorFrete = valorFrete.subtract(descontoFrete);
+		}
+
+		recalcularTotais();
+	}
+	
+	public LocalDateTime getDataPagamento() {
+		return dataPagamento;
+	}
+
+	public Money getValorDesconto() {
+		return valorDesconto;
+	}
+
+	public void setValorDesconto(Money valorDesconto) {
+		if (valorDesconto.isNegative()) {
+			throw new IllegalArgumentException("Valor do desconto não pode ser negativo");
+		}
+
+		// Se tiver cupom aplicado, não pode sobrescrever manualmente
+		if (cupomAplicado != null && cupomAplicado.getTipoAplicacao() != TipoAplicacaoCupom.ITEM_ESPECIFICO) {
+			throw new IllegalStateException("Não é possível alterar desconto manualmente quando há cupom aplicado");
+		}
+
+		this.valorDesconto = valorDesconto;
+		recalcularTotais();
+	}
+
+	public Money getValorTotal() {
+		return valorTotal;
+	}
+
+	public Money getPesoTotalPedido() {
+		return pesoTotalPedido;
+	}
+
+	public Integer getQuantidadeTotalItens() {
+		return quantidadeTotalItens;
+	}
+
+	public List<ItemPedido> getItens() {
+		return Collections.unmodifiableList(itens);
+	}
+
+	public Cliente getCliente() {
+		return cliente;
+	}
+
+	public void setCliente(Cliente cliente) {
+		this.cliente = cliente;
+	}
+
+	// Métodos utilitários para análise
+	public Money getDescontoTotalItens() {
+		return itens.stream().map(ItemPedido::getDescontoItem).reduce(Money.zero(), Money::add);
+	}
+
+	public Money getValorBrutoItens() {
+		return itens.stream().map(item -> item.getPrecoUnitario().multiply(item.getQuantidade())).reduce(Money.zero(),
+				Money::add);
+	}
+
+	public BigDecimal getPercentualDesconto() {
+		if (subtotal.isZero()) {
+			return BigDecimal.ZERO;
+		}
+
+		Money valorBruto = getValorBrutoItens();
+		Money descontoTotal = getDescontoTotalItens().add(valorDesconto);
+
+		if (descontoTotal.isZero()) {
+			return BigDecimal.ZERO;
+		}
+
+		return new BigDecimal(descontoTotal.getCentavos())
+				.divide(new BigDecimal(valorBruto.getCentavos()), 4, RoundingMode.HALF_EVEN)
+				.multiply(new BigDecimal("100"));
+	}
+
+	public List<String> getCategoriasDistintas() {
+		return itens.stream().map(ItemPedido::getCategoriaId).filter(Objects::nonNull).distinct()
+				.collect(Collectors.toList());
+	}
+
+	public boolean contemProdutoPerecivel() {
+		return itens.stream().anyMatch(item -> item.getDataValidade() != null);
+	}
+
+	// Para gestão de estoque
+	public Map<String, Integer> getResumoEstoque() {
+		return itens.stream().collect(
+				Collectors.groupingBy(ItemPedido::getProdutoId, Collectors.summingInt(ItemPedido::getQuantidade)));
+	}
+
+	// Para logística
+	public List<ItemPedido> getItensPorStatus(ItemPedido.StatusItemPedido status) {
+		return itens.stream().filter(item -> item.getStatus() == status).collect(Collectors.toList());
+	}
+
+	public boolean todosItensProntosParaEnvio() {
+		return itens.stream().allMatch(item -> item.getStatus() == ItemPedido.StatusItemPedido.EMBALADO
+				|| item.getStatus() == ItemPedido.StatusItemPedido.FATURADO);
+	}
+
+//    public void aplicarDescontoFrete(Money desconto) {
+//        if (valorFreteOriginal == null) {
+//            valorFreteOriginal = freteAplicado != null ? freteAplicado.getValor() : Money.zero();
+//        }
+//
+//        Money novoValor = freteAplicado.getValor().subtract(desconto);
+//        freteAplicado.setValor(
+//            novoValor.isNegative() ? Money.zero() : novoValor
+//        );
+//
+//        recalcularTotais();
+//    }
+//
+//    public void removerDescontoFrete() {
+//        if (valorFreteOriginal != null) {
+//            freteAplicado.setValor(valorFreteOriginal);
+//            valorFreteOriginal = null;
+//            recalcularTotais();
+//        }
+//    }    
+
+	void alterarValorFrete(Money novoValor) {
+		if (novoValor.isNegative()) {
+			throw new IllegalArgumentException("Frete não pode ser negativo");
+		}
+		this.valorFrete = novoValor;
+		recalcularTotais();
+	}
+
+	public void aplicarDescontoFrete(Money novoValorFrete) {
+		alterarValorFrete(novoValorFrete);
+	}
+
+	public void selecionarEnderecoEntrega(EnderecoCliente endereco) {
+		this.enderecoEntrega = endereco;
+		atualizarDadosLogisticos();
+	}
+
+	private Integer pesoTotalPedidoEmGramas() {
+		if (pesoTotalPedido == null) {
+			return 0;
+		}
+		return pesoTotalPedido.getCentavos().intValue();
+	}
+
+	private Integer calcularVolumeTotalEmCm3() {
+		BigDecimal volume = calcularVolumeTotal();
+		if (volume == null) {
+			return 0;
+		}
+		return volume.intValue();
+	}
+
+	private void atualizarDadosLogisticos() {
+
+		if (empresa == null || enderecoEntrega == null) {
+			return; // ainda não há dados suficientes
+		}
+
+		this.dadosLogisticos = new DadosLogisticosPedido(empresa.getCep(), // cepOrigem
+				enderecoEntrega.getCep(), // cepDestino
+				pesoTotalPedidoEmGramas(), // Integer
+				calcularVolumeTotalEmCm3(), // Integer
+				subtotal // Money (valor declarado)
+		);
+	}
+
+	/*
+	 * public void aplicarFrete(FreteAplicado frete) {
+	 * 
+	 * if (frete == null) { throw new
+	 * IllegalArgumentException("Frete não pode ser nulo"); }
+	 * 
+	 * if (!this.status.permiteAlteracao()) { throw new IllegalStateException(
+	 * "Pedido não pode receber frete neste status: " + status ); }
+	 * 
+	 * // Se já existe frete aplicado, substituir é permitido? // Decisão de negócio
+	 * explícita if (this.freteAplicado != null) { throw new
+	 * IllegalStateException("Frete já aplicado ao pedido"); }
+	 * 
+	 * this.freteAplicado = frete; this.valorFrete = frete.getValor();
+	 * 
+	 * recalcularTotais(); }
+	 */
+
+	public void aplicarFrete(SnapshotFrete snapshot) {
+
+		if (snapshot == null) {
+			throw new IllegalArgumentException("Snapshot de frete não pode ser nulo");
+		}
+
+		if (!this.status.permiteAlteracao()) {
+			throw new IllegalStateException("Pedido não pode receber frete no status atual: " + this.status);
+		}
+
+		if (this.dadosLogisticos == null) {
+			throw new IllegalStateException("Pedido não possui dados logísticos para aplicação de frete");
+		}
+
+		// Limpa estado anterior
+		this.freteAplicado = null;
+		this.valorFreteOriginal = null;
+
+		// Snapshot → estado persistido
+		this.freteAplicado = new FreteAplicado(snapshot);
+
+		this.valorFrete = snapshot.isFreteGratis() ? Money.zero() : snapshot.getValor();
+
+		if (this.cupomAplicado != null && this.cupomAplicado.getTipoAplicacao() == TipoAplicacaoCupom.FRETE) {
+
+			this.valorFreteOriginal = snapshot.getValor();
+		}
+
+		recalcularTotais();
+	}
+
+	public void removerCupom() {
+		if (this.cupomAplicado == null) {
+			throw new IllegalStateException("Pedido não possui cupom aplicado");
+		}
+
+		Cupom cupomRemovido = this.cupomAplicado;
+
+		switch (cupomRemovido.getTipoAplicacao()) {
+		case SUBTOTAL:
+			this.valorDesconto = Money.zero();
+			break;
+
+		case FRETE:
+			if (this.valorFreteOriginal != null) {
+				this.valorFrete = this.valorFreteOriginal;
+				this.valorFreteOriginal = null;
+			}
+			break;
+
+		case ITEM_ESPECIFICO:
+			removerDescontoCupomDosItens();
+			break;
+		}
+
+		this.cupomAplicado = null;
+		recalcularTotais();
+	}
+
+	/*
+	 * Factory method a partir de RascunhoPedido
+	 */
+	public static Pedido criarDoRascunho(RascunhoPedido rascunho, Cliente cliente, Empresa empresa,
+			EnderecoCliente enderecoEntrega) {
+		if (rascunho == null)
+			throw new IllegalArgumentException("Rascunho não pode ser nulo");
+
+		Pedido pedido = criar(cliente, empresa, enderecoEntrega);
+
+		// Converter itens do rascunho para ItemPedido
+		for (ItemRascunho itemRascunho : rascunho.getItens()) {
+			// Usar o Builder existente
+			ItemPedido item = new ItemPedido.Builder().pedido(pedido).produtoId(itemRascunho.getProdutoId().toString())
+					.produtoSku(itemRascunho.getProdutoSku()).produtoNome(itemRascunho.getProdutoNome())
+					.precoUnitario(itemRascunho.getPrecoUnitario()).quantidade(itemRascunho.getQuantidade())
+					.pesoGramas(itemRascunho.getPesoGramas() != null ? itemRascunho.getPesoGramas().longValue() : 0L)
+					.build();
+
+			if (itemRascunho.getDimensoes() != null) {
+				item.setDimensoes(itemRascunho.getDimensoes());
+			}
+
+			pedido.itens.add(item);
+		}
+
+		// AGORA IMPORTANTE: Calcular dados logísticos
+		pedido.recalcularTotais();
+		pedido.atualizarDadosLogisticos(); // Este método já existe e usa DadosLogisticosPedido
+
+		return pedido;
+	}
+	
+	
+	public void alterarMetodoPagamento(MetodoPagamento novoMetodo) {
+	    if (novoMetodo == null) {
+	        throw new IllegalArgumentException("Método de pagamento é obrigatório");
+	    }
+
+	    if (!this.status.permiteAlterarPagamento()) {
+	        throw new IllegalStateException(
+	            "Pedido não permite alterar pagamento no status: " + this.status
+	        );
+	    }
+
+	    if (this.status != StatusPedido.AGUARDANDO_PAGAMENTO) {
+	        throw new IllegalStateException("Só pode trocar método em AGUARDANDO_PAGAMENTO");
+	    }
+
+	    if (this.estaExpirado()) {
+	        throw new IllegalStateException("Pedido expirado não pode alterar método de pagamento");
+	    }
+
+	    if (novoMetodo == this.metodoPagamento) {
+	        return; // idempotente
+	    }
+
+	    MetodoPagamento antigo = this.metodoPagamento;
+	    this.metodoPagamento = novoMetodo;
+	    this.dataLimitePagamento = novoMetodo.calcularDataLimite();
+	    this.dataAtualizacao = LocalDateTime.now();	
+
+	    // opcional: registrar evento de domínio (melhor que publicar direto)
+	    this.registrarEvento(new MetodoPagamentoAlteradoEvent(this.id, antigo, novoMetodo));
+	}
+	    
+	    
+	/**
+	 * Finaliza checkout (muda status para AGUARDANDO_PAGAMENTO e
+	 * seta o metodo de Pagamento)
+	 */
+	public void finalizarCheckout(MetodoPagamento metodoPagamento) {
+		if (!this.status.permiteAlterarPagamento()) {
+		    throw new IllegalStateException(
+		        "O Pedido não permite alteração de método de pagamento no status: " + this.status
+		    );
+		}
+
+		// Validações adicionais
+		if (itens.isEmpty()) {
+			throw new IllegalStateException("Pedido não pode estar vazio");
+		}
+
+		if (enderecoEntrega == null) {
+			throw new IllegalStateException("Endereço de entrega não selecionado");
+		}
+
+		if (metodoPagamento == null) {
+			throw new IllegalArgumentException("Método de pagamento é obrigatório");
+		}
+
+		this.metodoPagamento = metodoPagamento;
+		// ✅ Define data limite baseada no método de pagamento
+		this.dataLimitePagamento = metodoPagamento.calcularDataLimite();
+		this.congelarSnapshotEndereco();
+		this.congelarSnapshotCliente();
+		this.status = StatusPedido.AGUARDANDO_PAGAMENTO;
+		this.dataAtualizacao = LocalDateTime.now();
+		
+	}
+	
+	private void congelarSnapshotEndereco() {
+		  if (this.snapshotEntrega == null && this.enderecoEntrega != null) {
+		    this.snapshotEntrega = SnapshotEnderecoEntrega.from(this.enderecoEntrega);
+		  }
+		}	
+	
+	
+	private void congelarSnapshotCliente() {
+		  if (this.snapshotCliente == null && this.cliente != null) {
+		    this.snapshotCliente = SnapshotCliente.from(this.cliente);
+		  }	
+	}
+	/**
+	 * ✅ CALCULA DURAÇÃO DA RESERVA BASEADA NO MÉTODO DE PAGAMENTO
+	 * A reserva deve expirar junto com o pedido
+	 */
+	public Duration calcularDuracaoReserva() {
+	    // ✅ DIRETO: pega do enum (consistente)
+	    return this.metodoPagamento != null 
+	        ? this.metodoPagamento.getTempoExpiracaoPadrao()
+	        : Duration.ofMinutes(30); // fallback
+	}
+	
+	
+
+	public UUID getId() {
+		return id;
+	}
+
+	public void setId(UUID id) {
+		this.id = id;
+	}
+	
+	
+    // Getter
+    public String getNumero() {
+        return numero;
+    }
+    
+    // Setter protegido (apenas para JPA/deserialização)
+    protected void setNumero(String numero) {
+        this.numero = numero;
+    }	
+
+	public StatusPedido getStatus() {
+		return status;
+	}
+
+//	public void setStatus(StatusPedido status) {
+//		this.status = status;
+//	}
+
+	public Cupom getCupomAplicado() {
+		return cupomAplicado;
+	}
+
+	public void setCupomAplicado(Cupom cupomAplicado) {
+		this.cupomAplicado = cupomAplicado;
+	}
+
+	public void setSubtotal(Money subtotal) {
+		this.subtotal = subtotal;
+	}
+
+	public void setValorTotal(Money valorTotal) {
+		this.valorTotal = valorTotal;
+	}
+
+	public void setPesoTotalPedido(Money pesoTotalPedido) {
+		this.pesoTotalPedido = pesoTotalPedido;
+	}
+
+	public void setQuantidadeTotalItens(Integer quantidadeTotalItens) {
+		this.quantidadeTotalItens = quantidadeTotalItens;
+	}
+
+	public Money getValorFreteOriginal() {
+		return valorFreteOriginal;
+	}
+
+	public void setValorFreteOriginal(Money valorFreteOriginal) {
+		this.valorFreteOriginal = valorFreteOriginal;
+	}
+
+	public EnderecoCliente getEnderecoEntrega() {
+		return enderecoEntrega;
+	}
+
+	public void setEnderecoEntrega(EnderecoCliente enderecoEntrega) {
+		this.enderecoEntrega = enderecoEntrega;
+	}
+
+	public DadosLogisticosPedido getDadosLogisticos() {
+		return dadosLogisticos;
+	}
+
+	public void setDadosLogisticos(DadosLogisticosPedido dadosLogisticos) {
+		this.dadosLogisticos = dadosLogisticos;
+	}
+
+	public Empresa getEmpresa() {
+		return empresa;
+	}
+
+	public void setEmpresa(Empresa empresa) {
+		this.empresa = empresa;
+	}
+
+	public FreteAplicado getFreteAplicado() {
+		return freteAplicado;
+	}
+
+	public void setFreteAplicado(FreteAplicado freteAplicado) {
+		this.freteAplicado = freteAplicado;
+	}
+	
+	public SnapshotEnderecoEntrega getSnapshotEntrega() {
+		return snapshotEntrega;
+	}
+	
+	public void setSnapshotEntrega(SnapshotEnderecoEntrega snapshotEntrega) {
+		this.snapshotEntrega = snapshotEntrega;
+	}
+
+	public LocalDateTime getDataAtualizacao() {
+		return dataAtualizacao;
+	}
+
+	public LocalDateTime getDataCancelamento() {
+		return dataCancelamento;
+	}
+	
+	
+	public MetodoPagamento getMetodoPagamento() {
+		return metodoPagamento;
+	}
+
+	public LocalDateTime getDataLimitePagamento() {
+		return dataLimitePagamento;
+	}	
+
+	public LocalDateTime getDataCriacao() {
+		return dataCriacao;
+	}
+	
+	public void setObservacaoCancelamento(String observacaoCancelamento) {
+		this.observacaoCancelamento = observacaoCancelamento;
+	}
+	
+	public String getObservacaoCancelamento() {
+		return observacaoCancelamento;
+	}
+
+	@Override
+	public boolean equals(Object o) {
+		if (this == o)
+			return true;
+		if (!(o instanceof Pedido))
+			return false;
+		Pedido pedido = (Pedido) o;
+		return Objects.equals(id, pedido.id);
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(id);
+	}
+
+}
+
+
+package com.app.backend_alfatec_shop.pedido.domain.model;
+
+import com.app.backend_alfatec_shop.component.pattern.Money;
+
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Column;
+
+@Embeddable
+public class DadosLogisticosPedido {
+	
+	
+    private String cepOrigem;
+    private String cepDestino;
+
+    @Column(name = "peso_total_gramas")
+    private Integer pesoTotalGramas;
+
+    @Column(name = "volume_total_cm3")
+    private Integer volumeTotalCm3;
+
+    @Embedded
+    @AttributeOverride(
+        name = "centavos",
+        column = @Column(name = "valor_declarado_centavos")
+    )
+    private Money valorDeclarado;
+
+    protected DadosLogisticosPedido() {}
+
+    public DadosLogisticosPedido(
+        String cepOrigem,
+        String cepDestino,
+        Integer pesoTotalGramas,
+        Integer volumeTotalCm3,
+        Money valorDeclarado
+    ) {
+        this.cepOrigem = cepOrigem;
+        this.cepDestino = cepDestino;
+        this.pesoTotalGramas = pesoTotalGramas;
+        this.volumeTotalCm3 = volumeTotalCm3;
+        this.valorDeclarado = valorDeclarado;
+    }
+
+    public String getCepOrigem() {
+        return cepOrigem;
+    }
+
+    public String getCepDestino() {
+        return cepDestino;
+    }
+
+    public Integer getPesoTotalGramas() {
+        return pesoTotalGramas;
+    }
+
+    public Integer getVolumeTotalCm3() {
+        return volumeTotalCm3;
+    }
+
+    public Money getValorDeclarado() {
+        return valorDeclarado;
+    }
+    
+    public void setCepDestino(String cepDestino) {
+		this.cepDestino = cepDestino;
+	}
+    
+    public void setCepOrigem(String cepOrigem) {
+		this.cepOrigem = cepOrigem;
+	}
+    
+    public void setPesoTotalGramas(Integer pesoTotalGramas) {
+		this.pesoTotalGramas = pesoTotalGramas;
+	}
+    
+    public void setValorDeclarado(Money valorDeclarado) {
+		this.valorDeclarado = valorDeclarado;
+	}
+    
+    public void setVolumeTotalCm3(Integer volumeTotalCm3) {
+		this.volumeTotalCm3 = volumeTotalCm3;
+	}
+    
+    
+}
+
+
+package com.app.backend_alfatec_shop.pedido.application.service;
+
+import com.app.backend_alfatec_shop.cliente.domain.model.Cliente;
+import com.app.backend_alfatec_shop.cliente.domain.model.EnderecoCliente;
+import com.app.backend_alfatec_shop.cliente.domain.repository.ClienteRepository;
+import com.app.backend_alfatec_shop.component.pattern.Money;
+import com.app.backend_alfatec_shop.component.pattern.StatusPedido;
+import com.app.backend_alfatec_shop.entity.Empresa;
+import com.app.backend_alfatec_shop.entity.Produto;
+import com.app.backend_alfatec_shop.financeiro.domain.valueobject.MetodoPagamento;
+import com.app.backend_alfatec_shop.frete.domain.SnapshotFrete;
+import com.app.backend_alfatec_shop.pedido.domain.model.Cupom;
+import com.app.backend_alfatec_shop.pedido.domain.model.ItemPedido;
+import com.app.backend_alfatec_shop.pedido.domain.model.Pedido;
+import com.app.backend_alfatec_shop.pedido.domain.repository.EmpresaRepository;
+import com.app.backend_alfatec_shop.pedido.domain.repository.EnderecoClienteRepository;
+import com.app.backend_alfatec_shop.pedido.domain.repository.PedidoRepository;
+import com.app.backend_alfatec_shop.pedido.domain.service.CupomService;
+import com.app.backend_alfatec_shop.repository.ProdutoRepository;
+import com.app.backend_alfatec_shop.service.EmpresaService;
+
+import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@Transactional
+public class CheckoutService {
+    
+    private final PedidoRepository pedidoRepository;
+    private final ClienteRepository clienteRepository;
+    private final EmpresaRepository empresaRepository;
+    private final EnderecoClienteRepository enderecoClienteRepository;
+    private final ProdutoRepository produtoRepository;
+    private final CupomService cupomService;
+    private final SimulacaoService simulacaoService;
+    private final EmpresaService empresaService;
+    
+    private static final Logger log = LoggerFactory.getLogger(CheckoutService.class);
+    
+    
+    public CheckoutService(
+    	      PedidoRepository pedidoRepository,
+    	      ClienteRepository clienteRepository,
+    	      EmpresaRepository empresaRepository,
+    	      EnderecoClienteRepository enderecoClienteRepository,
+    	      ProdutoRepository produtoRepository,
+    	      CupomService cupomService,
+    	      SimulacaoService simulacaoService,
+    	      EmpresaService empresaService    		
+    		) {
+	      this.pedidoRepository = pedidoRepository;
+	      this.clienteRepository = clienteRepository ;
+	      this.empresaRepository = empresaRepository;
+	      this.enderecoClienteRepository = enderecoClienteRepository;
+	      this.produtoRepository = produtoRepository;
+	      this.cupomService = cupomService;
+	      this.simulacaoService = simulacaoService;
+	      this.empresaService = empresaService;    	
+	}
+    
+    public FinalizarCheckoutResponse finalizarCheckout(
+        FinalizarCheckoutRequest request,
+        UUID clienteId
+    ) {
+        log.info("Checkout direto para cliente: {}", clienteId);
+        
+        // 1. Carregar entidades básicas
+        Cliente cliente = clienteRepository.buscarPorId(clienteId)
+            .orElseThrow(() -> new ClienteNaoEncontradoException(clienteId));
+        
+        EnderecoCliente endereco = enderecoClienteRepository.buscarPorId(request.enderecoEntregaId())
+            .orElseThrow(() -> new EnderecoNaoEncontradoException(request.enderecoEntregaId()));
+        
+        Empresa empresa = empresaService.buscarEmpresaPadrao();
+        
+        // 2. Carregar produtos e validar
+        List<Produto> produtos = carregarEValidarProdutos(request.itens());
+        
+        // 3. Recalcular subtotal com preços atuais
+        Money subtotal = recalcularSubtotal(produtos, request.itens());
+        
+        // 4. Simular e selecionar frete
+        SnapshotFrete freteSelecionado = simularESelecionarFrete(
+            endereco.getCep(),
+            request.itens(),
+            request.freteSelecionado()
+        );
+        
+        // 5. Validar e calcular desconto do cupom
+        Money desconto = validarECalcularDescontoCupom(
+            request.codigoCupom(),
+            subtotal,
+            freteSelecionado.getValor(),
+            clienteId
+        );
+        
+        // 6. Criar pedido DIRETAMENTE (sem rascunho)
+        Pedido pedido = criarPedidoDireto(
+            cliente,
+            empresa,
+            endereco,
+            produtos,
+            request.itens(),
+            freteSelecionado,
+            request.codigoCupom(),
+            desconto,
+            request.metodoPagamento()
+        );
+        
+        // 7. Persistir pedido
+        pedidoRepository.salvar(pedido);
+        
+        // 8. Reservar estoque (usando lógica existente)
+        reservarEstoque(pedido);
+        
+        // 9. Criar pagamento (usando lógica existente)
+        criarPagamento(pedido);
+        
+        // 10. Calcular totais finais
+        Money total = subtotal
+            .add(freteSelecionado.getValor())
+            .subtract(desconto);
+        
+        log.info("Pedido criado diretamente: {}", pedido.getId());
+        
+        return new FinalizarCheckoutResponse(
+            pedido.getId(),
+            subtotal,
+            freteSelecionado.getValor(),
+            desconto,
+            total,
+            pedido.getDataLimitePagamento()
+        );
+    }
+    
+    private List<Produto> carregarEValidarProdutos(List<ItemCheckoutRequest> itens) {
+        List<UUID> produtoIds = itens.stream()
+            .map(ItemCheckoutRequest::produtoId)
+            .collect(Collectors.toList());
+        
+        List<Produto> produtos = produtoRepository.buscarPorIds(produtoIds);
+        
+        // Validar se todos foram encontrados
+        if (produtos.size() != produtoIds.size()) {
+            Set<UUID> encontrados = produtos.stream()
+                .map(Produto::getId)
+                .collect(Collectors.toSet());
+            
+            List<UUID> naoEncontrados = produtoIds.stream()
+                .filter(id -> !encontrados.contains(id))
+                .collect(Collectors.toList());
+            
+            throw new ProdutoNaoEncontradoException(
+                "Produtos não encontrados: " + naoEncontrados
+            );
+        }
+        
+        // Validar se estão ativos
+        List<String> inativos = produtos.stream()
+            .filter(p -> !p.isAtivo())
+            .map(Produto::getNome)
+            .collect(Collectors.toList());
+        
+        if (!inativos.isEmpty()) {
+            throw new ProdutoInativoException(
+                "Produtos inativos: " + String.join(", ", inativos)
+            );
+        }
+        
+        return produtos;
+    }
+    
+    private Money recalcularSubtotal(List<Produto> produtos, List<ItemCheckoutRequest> itens) {
+        Money subtotal = Money.zero();
+        Map<UUID, Produto> produtoMap = produtos.stream()
+            .collect(Collectors.toMap(Produto::getId, p -> p));
+        
+        for (ItemCheckoutRequest item : itens) {
+            Produto produto = produtoMap.get(item.produtoId());
+            if (produto == null) continue;
+            
+            subtotal = subtotal.adicionar(
+                produto.getPreco().multiplicar(BigDecimal.valueOf(item.quantidade()))
+            );
+        }
+        
+        return subtotal;
+    }
+    
+    private SnapshotFrete simularESelecionarFrete(
+        String cepDestino,
+        List<ItemCheckoutRequest> itens,
+        FreteSelecionadoRequest freteSelecionado
+    ) {
+        // Converter para itens de simulação
+        List<ItemSimulacaoRequest> itensSimulacao = itens.stream()
+            .map(i -> new ItemSimulacaoRequest(i.produtoId(), i.quantidade()))
+            .collect(Collectors.toList());
+        
+        // Simular frete
+        var freteRequest = new SimulacaoController.SimularFreteRequest(cepDestino, itensSimulacao);
+        var freteResponse = simulacaoService.simularFrete(freteRequest);
+        
+        if (freteResponse.opcoes().isEmpty()) {
+            throw new FreteNaoDisponivelException("Nenhuma opção de frete disponível");
+        }
+        
+        // Selecionar opção
+        if (freteSelecionado != null) {
+            // Buscar opção específica
+            var opcao = freteResponse.opcoes().stream()
+                .filter(o -> o.codigoTransportadora().equals(freteSelecionado.codigoTransportadora())
+                    && o.codigoServico().equals(freteSelecionado.codigoServico()))
+                .findFirst()
+                .orElseThrow(() -> new OpcaoFreteNaoEncontradaException(
+                    "Opção selecionada não disponível"
+                ));
+            
+            return criarSnapshotFromResponse(opcao);
+        } else {
+            // Usar mais barato
+            var maisBarato = freteResponse.maisBarato();
+            if (maisBarato == null) {
+                maisBarato = freteResponse.opcoes().get(0);
+            }
+            return criarSnapshotFromResponse(maisBarato);
+        }
+    }
+    
+    private SnapshotFrete criarSnapshotFromResponse(SimulacaoController.OpcaoFreteResponse response) {
+        return SnapshotFrete.criarBasico(
+            response.codigoTransportadora(),
+            response.nomeServico(),
+            response.valor(),
+            response.prazoEntregaDias(),
+            response.freteGratis()
+        );
+    }
+    
+    private Money validarECalcularDescontoCupom(
+        String codigoCupom,
+        Money subtotal,
+        Money frete,
+        UUID clienteId
+    ) {
+        if (codigoCupom == null || codigoCupom.isBlank()) {
+            return Money.zero();
+        }
+        
+        // Simular cupom
+        var cupomRequest = new SimulacaoController.SimularCupomRequest(
+            codigoCupom,
+            Collections.emptyList(), // Não precisa dos itens aqui
+            frete
+        );
+        
+        var cupomResponse = simulacaoService.simularCupom(cupomRequest);
+        
+        if (!cupomResponse.valido()) {
+            throw new CupomInvalidoException(cupomResponse.mensagem());
+        }
+        
+        return cupomResponse.desconto();
+    }
+    
+    private Pedido criarPedidoDireto(
+        Cliente cliente,
+        Empresa empresa,
+        EnderecoCliente endereco,
+        List<Produto> produtos,
+        List<ItemCheckoutRequest> itens,
+        SnapshotFrete frete,
+        String codigoCupom,
+        Money desconto,
+        MetodoPagamento metodoPagamento
+    ) {
+        // Criar pedido usando o factory method existente
+        Pedido pedido = Pedido.criar(cliente, empresa, endereco);
+        
+        // Adicionar itens
+        Map<UUID, Produto> produtoMap = produtos.stream()
+            .collect(Collectors.toMap(Produto::getId, p -> p));
+        
+        for (ItemCheckoutRequest itemReq : itens) {
+            Produto produto = produtoMap.get(itemReq.produtoId());
+            
+            ItemPedido item = new ItemPedido.Builder()
+                .pedido(pedido)
+                .produtoId(produto.getId().toString())
+                .produtoNome(produto.getNome())
+                .produtoSku(produto.getSku())
+                .precoUnitario(produto.getPreco())
+                .quantidade(itemReq.quantidade())
+                .pesoGramas(produto.getPesoGramas() != null ? 
+                    produto.getPesoGramas().longValue() : 0)
+                .dimensoes(produto.getDimensoes())
+                .build();
+            
+            pedido.adicionarItem(item);
+        }
+        
+        // Aplicar frete
+        pedido.aplicarFrete(frete);
+        
+        // Aplicar cupom (se houver)
+        if (codigoCupom != null && !codigoCupom.isBlank()) {
+            Cupom cupom = cupomService.buscarPorCodigo(codigoCupom)
+                .orElseThrow(() -> new CupomNaoEncontradoException(codigoCupom));
+            
+            pedido.aplicarCupom(cupom, desconto);
+        }
+        
+        // Finalizar checkout
+        pedido.finalizarCheckout(metodoPagamento);
+        
+        return pedido;
+    }
+    
+    private void reservarEstoque(Pedido pedido) {
+        try {
+            Map<UUID, Integer> itensParaReserva = new HashMap<>();
+            
+            for (ItemPedido item : pedido.getItens()) {
+                itensParaReserva.put(
+                    UUID.fromString(item.getProdutoId()),
+                    item.getQuantidade()
+                );
+            }
+            
+            // Usar serviço de reserva existente
+            // Nota: Você precisará injetar o ReservaEstoqueService
+            // reservaEstoqueService.criarReservaTemporaria(...)
+            
+            log.info("Estoque reservado para pedido: {}", pedido.getId());
+            
+        } catch (Exception e) {
+            log.error("Falha ao reservar estoque", e);
+            throw new EstoqueReservaException("Erro ao reservar estoque", e);
+        }
+    }
+    
+    private void criarPagamento(Pedido pedido) {
+        // Usar lógica existente de criação de pagamento
+        // Pagamento pagamento = new Pagamento(...);
+        // pagamentoRepository.salvar(pagamento);
+        
+        log.info("Pagamento criado para pedido: {}", pedido.getId());
+    }
+    
+    // ==================== EXCEÇÕES ====================
+    
+    public static class ClienteNaoEncontradoException extends RuntimeException {
+        public ClienteNaoEncontradoException(UUID clienteId) {
+            super("Cliente não encontrado: " + clienteId);
+        }
+    }
+    
+    public static class EnderecoNaoEncontradoException extends RuntimeException {
+        public EnderecoNaoEncontradoException(UUID enderecoId) {
+            super("Endereço não encontrado: " + enderecoId);
+        }
+    }
+    
+    public static class EmpresaNaoEncontradaException extends RuntimeException {
+        public EmpresaNaoEncontradaException(Long empresaId) {
+            super("Empresa não encontrada: " + empresaId);
+        }
+    }
+    
+    public static class ProdutoNaoEncontradoException extends RuntimeException {
+        public ProdutoNaoEncontradoException(String message) {
+            super(message);
+        }
+    }
+    
+    public static class ProdutoInativoException extends RuntimeException {
+        public ProdutoInativoException(String message) {
+            super(message);
+        }
+    }
+    
+    public static class FreteNaoDisponivelException extends RuntimeException {
+        public FreteNaoDisponivelException(String message) {
+            super(message);
+        }
+    }
+    
+    public static class OpcaoFreteNaoEncontradaException extends RuntimeException {
+        public OpcaoFreteNaoEncontradaException(String message) {
+            super(message);
+        }
+    }
+    
+    public static class CupomInvalidoException extends RuntimeException {
+        public CupomInvalidoException(String message) {
+            super(message);
+        }
+    }
+    
+    public static class CupomNaoEncontradoException extends RuntimeException {
+        public CupomNaoEncontradoException(String codigoCupom) {
+            super("Cupom não encontrado: " + codigoCupom);
+        }
+    }
+    
+    public static class EstoqueReservaException extends RuntimeException {
+        public EstoqueReservaException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+}
+
+package com.app.backend_alfatec_shop.repository;
+
+import java.util.Optional;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import com.app.backend_alfatec_shop.dto.ProdutoDTO;
+import com.app.backend_alfatec_shop.entity.Categoria;
+import com.app.backend_alfatec_shop.entity.Produto;
+
+@Repository
+public interface ProdutoRepository extends JpaRepository<Produto, Long> {
+	
+	
+	@Query(value = """
+		    SELECT new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+		        p.id,
+		        p.nome,
+		        p.preco,
+		        p.precoPromocional,
+		        p.imagemPrincipalUrl,
+		        p.descricao,
+		        p.marca.nome,
+		        p.peso,
+		        p.altura,
+		        p.largura,
+		        p.comprimento,
+		        p.categoria.slug,
+		        p.categoria.nome,
+		        p.destaque,
+		        p.freteGratis,
+		        p.localizacao.nome		        
+		    )
+		    FROM Produto p
+		""")	
+	Page<ProdutoDTO> findAllDto(Pageable pageable);
+	
+	
+	@Query(value = """
+		    SELECT new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+		        p.id,
+		        p.nome,
+		        p.preco,
+		        p.precoPromocional,
+		        p.imagemPrincipalUrl,
+		        p.freteGratis,
+		        c.slug,
+		        p.destaque,
+		        p.ativo
+		    )
+		    FROM Produto p
+		    JOIN p.categoria c
+		    WHERE c.id = :categoriaId and p.ativo = true
+		""",
+		countQuery = """
+		    SELECT COUNT(p)
+		    FROM Produto p
+		    WHERE p.categoria.id = :categoriaId and p.ativo = true
+		 """)
+	Page<ProdutoDTO> findByCategoriaId(@Param("categoriaId")Long categoriaId, Pageable pageable);
+
+	@Query("""
+		    SELECT DISTINCT p
+		    FROM Produto p
+		    LEFT JOIN FETCH p.imagens
+		    JOIN p.categoria c
+		    WHERE p.ativo = true
+		""")
+	Page<Produto> findByAtivo(Pageable pageable);
+
+	@Query("""
+		    SELECT DISTINCT p
+		    FROM Produto p
+		    LEFT JOIN FETCH p.imagens
+		    JOIN p.categoria c
+		    WHERE p.ativo = true 
+		    and upper(p.nome) like CONCAT('%', UPPER(:nome), '%')
+		""")
+	Page<Produto> findByAtivoAndNome(@Param("nome") String nome,Pageable pageable);
+	
+	@Query("""
+		    SELECT DISTINCT p
+		    FROM Produto p
+		    LEFT JOIN FETCH p.imagens
+		    JOIN p.categoria c
+		    WHERE p.ativo = true
+		      AND c.slug = :slug
+		      AND upper(p.nome) LIKE CONCAT('%', upper(:nome), '%')
+		""")
+		Page<Produto> findByCategoriaAndNome(
+				@Param("nome") String nome,
+		        @Param("slug") String slug,
+		        Pageable pageable
+		);	
+
+	@Query("""
+		    SELECT DISTINCT p
+		    FROM Produto p
+		    LEFT JOIN FETCH p.imagens
+		    JOIN p.categoria c
+		    WHERE p.ativo = true
+		      AND c.slug = :slugCategoria
+		""")
+	Page<Produto> findByCategoriaSlugAndAtivo(@Param("slugCategoria") String slugCategoria, Pageable pageable);
+
+	@Query("""
+		       SELECT new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+		           p.id,
+		           p.nome,
+		           p.preco,
+		           p.precoPromocional,
+		           p.imagemPrincipalUrl,
+		           p.descricao,
+		           p.marca.nome,
+		           p.peso,
+		           p.altura,
+		           p.largura,
+		           p.comprimento,
+			       p.categoria.slug,
+			       p.categoria.nome,
+			       p.destaque,
+			       p.freteGratis,
+			       p.localizacao.nome		           
+		       )
+		       FROM Produto p
+		       WHERE p.id = :id
+		       """)
+	ProdutoDTO findDtoById(@Param("id") Long produtoId);
+
+	@Query("""
+		    select p from Produto p
+		    left join fetch p.imagens
+		    left join fetch p.marca
+		    left join fetch p.categoria
+		    left join fetch p.localizacao
+		    where p.id = :id
+		""")
+		Optional<Produto> buscarComImagens(@Param("id") Long id);
+	
+	@Query("""
+		    select p from Produto p
+		    left join fetch p.marca
+		    left join fetch p.categoria
+		    left join fetch p.localizacao
+		    where p.id = :id
+		""")
+		Optional<Produto> buscarParaEdicao(@Param("id") Long id);	
+	
+	@Query("""
+		    select p from Produto p
+		    left join fetch p.imagens
+		    where p.id = :id
+		""")
+	Optional<Produto> findByIdWithImagens(@Param("id") Long id);	
+	
+	
+	@Query("""
+			SELECT new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			)
+			FROM Produto p 
+			WHERE p.id = :id
+			""")
+	Page<ProdutoDTO> findPageById(@Param("id") Long id, Pageable pageable);
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p 
+			 WHERE upper(p.nome) like CONCAT('%', UPPER(:nome), '%')
+			""")
+	Page<ProdutoDTO> findPageByNome(@Param("nome") String nome, Pageable pageable);
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p 
+			 WHERE upper(p.categoria.nome) like CONCAT('%', UPPER(:nome), '%')
+			""")
+	Page<ProdutoDTO> findPageByCategoria(@Param("nome") String nomeCategoria, Pageable pageable);
+	
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p 
+			 WHERE upper(p.marca.nome) like CONCAT('%', UPPER(:marca), '%')
+			""")
+	Page<ProdutoDTO> findPageByMarca(@Param("marca") String marca, Pageable pageable);
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p 
+			 WHERE upper(p.localizacao.nome) like CONCAT('%', UPPER(:localizacao), '%')
+			""")
+	Page<ProdutoDTO> findPageByLoc(@Param("localizacao") String localizacao, Pageable pageable);
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p 
+			 WHERE upper(p.sku) like CONCAT('%', UPPER(:sku), '%')
+			""")
+	Page<ProdutoDTO> findPageBySku(@Param("sku") String sku, Pageable pageable);
+	
+
+	@Query(""" 
+			SELECT  new com.app.backend_alfatec_shop.dto.ProdutoDTO(
+				p.id,
+				p.nome,
+				p.preco,
+				p.precoPromocional,
+				p.freteGratis,
+				p.ativo
+			 ) 
+			 FROM Produto p
+			""")
+	Page<ProdutoDTO> findAllDtoResumo(Pageable pageable);	
+
+}
